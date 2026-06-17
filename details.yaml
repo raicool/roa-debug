@@ -1,0 +1,7 @@
+name: roa-debug
+# mod loader version that this mod supports
+loader-version: 0.0.4
+description: enables various gamemaker debug features for rivals of aether
+# url of repository to fetch released to update from
+repository: https://github.com/raicool/roa-texture-loader
+branch: master

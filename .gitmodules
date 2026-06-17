@@ -1,0 +1,10 @@
+[submodule "vendor/roa-mod-loader"]
+	path = vendor/roa-mod-loader
+	url = https://github.com/raicool/roa-mod-loader
+[submodule "vendor/imgui"]
+	path = vendor/imgui
+	url = https://github.com/ocornut/imgui
+	branch = docking
+[submodule "vendor/yaml-cpp"]
+	path = vendor/yaml-cpp
+	url = https://github.com/jbeder/yaml-cpp
