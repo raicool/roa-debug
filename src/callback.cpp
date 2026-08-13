@@ -7,6 +7,8 @@
 
 #define IS_MOUSE_EVENT(x) (x >= WM_MOUSEFIRST && x <= WM_MOUSELAST)
 
+bool g_uiflag = true;
+
 void imgui_init()
 {
 	ImGui::CreateContext();
@@ -21,6 +23,12 @@ void handle_wndproc(
 	LPARAM lParam
 )
 {
+
+	if (uMsg == WM_KEYDOWN && wParam == VK_F3)
+	{
+		g_uiflag ^= 1;
+	}
+
 	if (IS_MOUSE_EVENT(uMsg))
 	{
 		HCURSOR cursor = LoadCursorA(0, IDC_ARROW);
@@ -48,7 +56,10 @@ void dx_present(
 	ImGui_ImplWin32_NewFrame();
 	ImGui::NewFrame();
 
-	imgui_render();
+	if (g_uiflag)
+	{
+		imgui_render();
+	}
 
 	ImGui::Render();
 
