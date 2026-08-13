@@ -369,15 +369,15 @@ void render_dbg_console()
 		internal_console* current_console = nullptr;
 		if (ImGui::BeginTabBar("##Console"))
 		{
-			if (ImGui::BeginTabItem("Debug Console"))
-			{
-				current_console = &g_dbgstream;
-				ImGui::EndTabItem();
-			}
-
 			if (ImGui::BeginTabItem("Release Console"))
 			{
 				current_console = &g_relstream;
+				ImGui::EndTabItem();
+			}
+
+			if (ImGui::BeginTabItem("Debug Console"))
+			{
+				current_console = &g_dbgstream;
 				ImGui::EndTabItem();
 			}
 
