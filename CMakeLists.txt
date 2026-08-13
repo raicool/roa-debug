@@ -34,6 +34,11 @@ target_include_directories(${PROJECT_NAME} PRIVATE "vendor/roa-mod-loader/loader
 target_include_directories(${PROJECT_NAME} PRIVATE "vendor/imgui")
 target_include_directories(${PROJECT_NAME} PRIVATE "vendor/imgui/backends")
 
+# steamworks
+set(STEAM_API_LIB "${CMAKE_SOURCE_DIR}/vendor/steamworks_sdk_149/redistributable_bin/steam_api.lib")
+target_link_libraries(${PROJECT_NAME} PRIVATE "${STEAM_API_LIB}")
+target_include_directories(${PROJECT_NAME} PRIVATE "vendor/steamworks_sdk_149/public/steam")
+
 add_custom_command(
     TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/details.yaml" "${CMAKE_BINARY_DIR}/${PROJECT_NAME}/info.yaml"

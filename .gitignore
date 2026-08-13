@@ -6,4 +6,6 @@
 /.vscode
 /CMakeFiles
 
+/vendor/steamworks_sdk_149
+
 CMakeCache.txt

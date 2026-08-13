@@ -1,7 +1,9 @@
 #include "imgui_window.h"
 
 #include "internal_console.h"
+#include "instance.h"
 #include "mod.h"
+#include "steam_lobby_list.h"
 #include "yoyo.h"
 
 #include <loader/d3d11_hook.h>
@@ -22,14 +24,24 @@ extern int __vars_get_names__;
 
 int state_prev[16]{ 0 };
 
+async_steamapi_caller g_steamapi_request;
 const std::string window_name = std::format("{}", MOD_NAME);
 
 enum
 {
 	WINDOW_GLOBALS     = (1 << 0),
 	WINDOW_DBG_CONSOLE = (1 << 1),
+	WINDOW_LOBBY_LIST  = (1 << 2),
 
-	WINDOW_DEFAULTS = WINDOW_GLOBALS | WINDOW_DBG_CONSOLE
+	WINDOW_DEFAULTS = WINDOW_GLOBALS | WINDOW_DBG_CONSOLE | WINDOW_LOBBY_LIST
+};
+
+enum lobby_game_type
+{
+	UNKNOWN = 0,
+	EXHIBITION = '1',
+	PRIVATE = '2',
+	RANKED = '3',
 };
 
 constexpr ImVec4 color_rngval_active = ImVec4(0.68, 0.92, 0.57, 0.65);
@@ -113,6 +125,111 @@ void draw_callstack_tooltip(std::string& vm_callstack)
 
 	ImGui::EndTooltip();
 }
+
+std::string get_game_type_string(CSteamID lobby_id)
+{
+	const char* _gametype_val = SteamMatchmaking()->GetLobbyData(lobby_id, "gametype");
+	const char* _FFA_val = SteamMatchmaking()->GetLobbyData(lobby_id, "FFA");
+	const char* _UGC_val = SteamMatchmaking()->GetLobbyData(lobby_id, "UGC");
+	const char* _2v2_val = SteamMatchmaking()->GetLobbyData(lobby_id, "2v2");
+
+	uint8_t gametype_u8 = _gametype_val[0];
+	std::string game_type = "";
+	std::vector<const char*> extra_game_types;
+	bool has_extra_game_types = false;
+
+	switch (gametype_u8)
+	{
+	case lobby_game_type::EXHIBITION: game_type.append("Casual"); break;
+	case lobby_game_type::PRIVATE: game_type.append("Friendlies"); break;
+	case lobby_game_type::RANKED: game_type.append("Ranked"); break;
+	default: game_type.append("Unknown");
+	}
+
+	if (_FFA_val[0] == '1')
+	{
+		has_extra_game_types = true;
+		extra_game_types.emplace_back("FFA");
+	}
+
+	if (_UGC_val[0] == '1')
+	{
+		has_extra_game_types = true;
+		extra_game_types.emplace_back("Workshop");
+	}
+
+	if (_2v2_val[0] == '1')
+	{
+		has_extra_game_types = true;
+		extra_game_types.emplace_back("2v2");
+	}
+
+	if (has_extra_game_types)
+	{
+		game_type.push_back('(');
+		for (auto& _type : extra_game_types)
+		{
+			game_type.append(_type);
+			game_type.push_back(',');
+		}
+		game_type.push_back(')');
+	}
+
+	return game_type;
+}
+
+void render_lobby_list()
+{
+	if (ImGui::Begin("Running Lobbies"))
+	{
+		if (ImGui::Button("Refresh lobby list"))
+		{
+			g_steamapi_request.request_lobbies();
+			g_steamapi_request.request_player_count();
+		}
+		ImGui::SameLine();
+		ImGui::Text("%i players online.", g_steamapi_request.player_count);
+
+		ImGuiStyle& style = ImGui::GetStyle();
+		const float footer_height_to_reserve = style.SeparatorSize + style.ItemSpacing.y + ImGui::GetFrameHeightWithSpacing();
+		if (ImGui::BeginTable("##", 4, ImGuiTableFlags_Borders, ImVec2(0, -footer_height_to_reserve)))
+		{
+			ImGui::TableSetupScrollFreeze(0, 1);
+			ImGui::TableSetupColumn("Lobby Name", ImGuiTableColumnFlags_None);
+			ImGui::TableSetupColumn("Region", ImGuiTableColumnFlags_None);
+			ImGui::TableSetupColumn("Lobby Type", ImGuiTableColumnFlags_None);
+			ImGui::TableSetupColumn("Player Count", ImGuiTableColumnFlags_None);
+			ImGui::TableHeadersRow();
+			
+			for (auto& _entry : g_steamapi_request.lobbies)
+			{
+				ImGui::TableNextRow();
+				ImGui::TableSetColumnIndex(0);
+
+				ImGui::Text(SteamMatchmaking()->GetLobbyData(_entry, "title"));
+				ImGui::TableNextColumn();
+
+				ImGui::TableNextColumn();
+				
+				ImGui::Text(get_game_type_string(_entry).c_str());
+
+				ImGui::TableNextColumn();
+				const uint32_t lobby_member_count = SteamMatchmaking()->GetNumLobbyMembers(_entry);
+				const uint32_t lobby_member_limit = SteamMatchmaking()->GetLobbyMemberLimit(_entry);
+				const std::string player_amount = std::format(
+					"{}/{}",
+					lobby_member_count,
+					lobby_member_limit
+				);
+
+				ImGui::Text(player_amount.c_str());
+			}
+		}
+		ImGui::EndTable();
+	}
+	ImGui::End();
+}
+
 // some notes:
 // RNG:
 //	current rng value = state[g_RngIndex] both variables are set by function YYRandom()
@@ -304,6 +421,7 @@ void imgui_render()
 	{
 		ImGui::CheckboxFlags("Debug Console", &windows_flag, WINDOW_DBG_CONSOLE);
 		ImGui::CheckboxFlags("Globals", &windows_flag, WINDOW_GLOBALS);
+		ImGui::CheckboxFlags("Lobby List", &windows_flag, WINDOW_LOBBY_LIST);
 
 		ImGui::EndMenu();
 	}
@@ -323,6 +441,9 @@ void imgui_render()
 				break;
 			case WINDOW_DBG_CONSOLE:
 				render_dbg_console();
+				break;
+			case WINDOW_LOBBY_LIST:
+				render_lobby_list();
 				break;
 			}
 			_flags &= ~current_flag;
