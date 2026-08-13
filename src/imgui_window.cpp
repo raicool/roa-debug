@@ -10,12 +10,15 @@
 
 #define TOOLTIP(x, ...) if (ImGui::IsItemHovered()) ImGui::SetTooltip(x, __VA_ARGS__)
 
-extern Hash<CObjectGM>* g_ObjectHash;
+extern ObjectsHash** g_ObjectHash;
 extern int** g_RngIndex;
 extern int** state;
 
 extern internal_console g_dbgstream;
 extern internal_console g_relstream;
+
+extern SIGNATURE_SCRIPT_PERFORM Script_Perform;
+extern int __vars_get_names__;
 
 int state_prev[16]{ 0 };
 
@@ -44,6 +47,72 @@ ImVec4 imvec4_mix(ImVec4 r, ImVec4 l)
 	);
 }
 
+char instance_sel_name[32];
+bool instance_selected;
+void draw_instances(LinkedList<CInstance>* inst_list)
+{
+	for (int i = 0; i < inst_list->m_Count; i++)
+	{
+		CInstance* instance = inst_list->m_First + (sizeof(CInstance) * i);
+
+		if (!instance) break;
+
+		sprintf_s(instance_sel_name, 32, "0x%08x", instance);
+		ImGui::Selectable(instance_sel_name, &instance_selected);
+
+		if (instance_selected)
+		{
+			RValue var_names;
+			RValue inst_ptr;
+			inst_ptr.valuePointer = (void*)instance;
+			inst_ptr.type = GML_TYPE_POINTER;
+			DynamicArrayOfRValue args
+			{
+				1,
+				{ &inst_ptr,  }
+			};
+
+			Script_Perform(
+				__vars_get_names__, 
+				nullptr, 
+				nullptr, 
+				1, 
+				&var_names, 
+				&args
+				);
+
+			loader_log_info("0x{:08x}", var_names.type);
+// 			Script_Perform(__self_getter__, g_GlobalInstance, g_GlobalInstance, 0, &result, nullptr);
+			instance_selected = false;
+		}
+	}
+}
+
+bool object_treenode(CObjectGM* object)
+{
+	bool pressed = ImGui::TreeNode(object->m_Name);
+
+	ImGui::SameLine();
+	ImGui::PushStyleColor(ImGuiCol_Text, 0xff7f7f7f);
+	ImGui::Text("(%i instances)", object->m_Instances.m_Count);
+	ImGui::PopStyleColor();
+
+	return pressed;
+}
+
+void draw_callstack_tooltip(std::string& vm_callstack)
+{
+	ImGui::BeginTooltip();
+
+	ImGui::Text("Call Stack");
+	ImGui::Separator();
+
+	ImGui::PushStyleColor(ImGuiCol_Text, 0xff907f7f);
+	ImGui::Text(vm_callstack.c_str());
+	ImGui::PopStyleColor();
+
+	ImGui::EndTooltip();
+}
 // some notes:
 // RNG:
 //	current rng value = state[g_RngIndex] both variables are set by function YYRandom()
@@ -55,6 +124,28 @@ ImVec4 imvec4_mix(ImVec4 r, ImVec4 l)
 //	g_ObjectHash is a Hashmap that contains pointers to all currently loaded objects in the current room
 void render_globals()
 {
+	if (ImGui::Begin("test"))
+	{
+		for (int i = 0; i < (*g_ObjectHash)->m_count; i++)
+		{
+			CObjectGM* obj = (*g_ObjectHash)->find_object(i);
+
+			if (!obj)
+				break;
+
+			if (obj->m_Instances.m_Count > 0)
+			{
+				if (object_treenode(obj))
+				{
+					draw_instances(&obj->m_Instances);
+
+					ImGui::TreePop();
+				}
+			}
+		}
+	}
+	ImGui::End();
+
 	if (ImGui::Begin(window_name.c_str()))
 	{
 		const int _v_RngIndex = **g_RngIndex;
@@ -186,10 +277,8 @@ void render_dbg_console()
 				{
 					ImGui::Text(_entry.msg.c_str());
 
-					// gray text color
-					ImGui::PushStyleColor(ImGuiCol_Text, 0x7f7f7fff);
-					TOOLTIP("Call Stack:\n------------\n%s", _entry.vm_callstack.c_str());
-					ImGui::PopStyleColor();
+					if (ImGui::IsItemHovered()) 
+						draw_callstack_tooltip(_entry.vm_callstack);
 				}
 
 				if (scroll_to_bottom || auto_scroll)

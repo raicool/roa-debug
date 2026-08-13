@@ -1,5 +1,6 @@
 #include "internal_console.h"
 
+#include "instance.h"
 #include "yoyo.h"
 
 #include <loader/yyc.h>

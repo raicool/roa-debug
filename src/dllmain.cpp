@@ -10,36 +10,50 @@
 #include "callback.h"
 #include "utils.h"
 #include "console_vtable_hook.h"
+#include "instance.h"
 
 PFUNC_F_CALL F_VMGetCallStack = nullptr;
 PFUNC_F_CALL F_ArrayGet = nullptr;
 PFUNC_F_CALL F_ArrayLength1D = nullptr;
 
-Hash<CObjectGM>* g_ObjectHash = nullptr;
+ObjectsHash** g_ObjectHash = nullptr;
 int** g_RngIndex = nullptr;
 int** state = nullptr;
 
 void find_object_hash()
 {
-	std::vector<uint8_t> pattern_Object_Find =
+	std::vector<uint8_t> pattern
 	{
-		0x8b, 0x2d, '?', '?', '?', '?', // mov ebp, dword ptr [g_ObjectHash]
-		0x33, 0xc9, // xor ecx, ecx
-		0x56, // push esi
-		0x57, // push edi
-		0x8b, 0x5d, 0x00, // mov ebx, dword ptr [ebp]
-		0x8b, 0xf3, // mov esi, ebx
-		0x39, 0x0e, // cmp dword ptr [esi], ecx
-		0x75, 0x10, // jnz 0x10
-		0x8b, 0x45, 0x04 // mov eax, dword ptr [ebp + 0x4]
+		0xa1, '?', '?', '?', '?',
+		0x8b, 0x54, 0x24, '?',
+		0x8b, 0x48, '?',
+		0x8b, 0x00,
+		0x23, 0xca,
+		0x8b, 0x04, '?',
+		0x85, 0xc0,
+		0x74, 0x0c,
+		0x39, 0x50, '?',
+		0x74, '?'
 	};
 
-	uint32_t ptr_Object_Find = (uint32_t)loader_search_memory(pattern_Object_Find);
+	uint32_t ptr_ObjectHash = (uint32_t)loader_search_memory(pattern);
 
-	if (ptr_Object_Find)
+	if (ptr_ObjectHash)
 	{
-		g_ObjectHash = (Hash<CObjectGM>*)INCR_PTR(ptr_Object_Find, 2);
+		uint32_t real_ptr = *(uint32_t*)INCR_PTR(ptr_ObjectHash, 1);
+
+		g_ObjectHash = (ObjectsHash**)real_ptr;
 		loader_log_trace("g_ObjectHash = 0x{:08x}", (uint32_t)g_ObjectHash);
+		CObjectGM* obj = (*g_ObjectHash)->find_object(0);
+		if (obj)
+		{
+			loader_log_info("succeed {}", (void*)obj);
+			loader_log_info("obj->m_Name = {}", obj->m_Name);
+		}
+		else
+		{
+			loader_log_info("fail {}", (void*)obj);
+		}
 	}
 	else
 	{
@@ -150,6 +164,8 @@ DWORD WINAPI entry(LPVOID hModule)
 	find_object_hash();
 	find_rng_index();
 	prepare_console_vtable_hook();
+	prepare_global_instance();
+
 	F_VMGetCallStack = (PFUNC_F_CALL)find_VMGetCallStack();
 	F_ArrayGet = (PFUNC_F_CALL)find_ArrayGet();
 	F_ArrayLength1D = (PFUNC_F_CALL)find_ArrayLength1D();
