@@ -1,5 +1,4 @@
 # roa-debug
 enables various gamemaker debug features for rivals of aether
 
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/dd0c5e33-8447-4862-9397-d7ea371de7c1" />
-
+<img width="2560" height="1440" alt="mpv-shot0010" src="https://github.com/user-attachments/assets/37a17319-113b-4e77-84ac-aae64bfd3c51" />
