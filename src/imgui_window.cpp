@@ -28,6 +28,9 @@ int state_prev[16]{ 0 };
 const std::string window_name = std::format("{}", MOD_NAME);
 
 AsyncSteamAPICaller g_steamapi_request;
+CInstance* g_current_instance;
+RefDynamicArrayOfRValue* g_instance_variable_names;
+
 enum
 {
 	WINDOW_GLOBALS     = (1 << 0),
@@ -60,44 +63,54 @@ ImVec4 imvec4_mix(ImVec4 r, ImVec4 l)
 	);
 }
 
-char instance_sel_name[32];
+char instance_sel_name[128];
 bool instance_selected;
-void draw_instances(LinkedList<CInstance>* inst_list)
+bool found_current_instance = false;
+void draw_instances(LinkedList<CInstancePadded>* inst_list)
 {
-	for (int i = 0; i < inst_list->m_Count; i++)
+	CInstance* instance = inst_list->m_First->instance;
+
+	if (!instance) return;
+
+	sprintf_s(instance_sel_name, 128, "%i (0x%08x)", instance->id, instance);
+	ImGui::Selectable(instance_sel_name, &instance_selected);
+
+	if (instance == g_current_instance)
 	{
-		CInstance* instance = inst_list->m_First + (sizeof(CInstance) * i);
+		found_current_instance = true;
+	}
 
-		if (!instance) break;
+	if (instance_selected)
+	{
+		g_current_instance = instance;
 
-		sprintf_s(instance_sel_name, 32, "0x%08x", instance);
-		ImGui::Selectable(instance_sel_name, &instance_selected);
+		RValue val;
+		val.value_object = (YYObjectBase*)g_current_instance;
+		val.type = GML_TYPE_OBJECT;
+		g_instance_variable_names = loader_get_instance_variable_names(val);
 
-		if (instance_selected)
+		RValue var_names;
+		RValue inst_ptr;
+		inst_ptr.value_ptr = (void*)instance;
+		inst_ptr.type = GML_TYPE_POINTER;
+		DynamicArrayOfRValue args
 		{
-			RValue var_names;
-			RValue inst_ptr;
-			inst_ptr.valuePointer = (void*)instance;
-			inst_ptr.type = GML_TYPE_POINTER;
-			DynamicArrayOfRValue args
-			{
-				1,
-				{ &inst_ptr,  }
-			};
+			1,
+			{ &inst_ptr }
+		};
 
-			Script_Perform(
-				__vars_get_names__, 
-				nullptr, 
-				nullptr, 
-				1, 
-				&var_names, 
-				&args
-				);
+		Script_Perform(
+			__vars_get_names__,
+			nullptr,
+			nullptr,
+			1,
+			&var_names,
+			&args
+		);
 
-			loader_log_info("0x{:08x}", var_names.type);
-// 			Script_Perform(__self_getter__, g_GlobalInstance, g_GlobalInstance, 0, &result, nullptr);
-			instance_selected = false;
-		}
+		loader_log_info("0x{:08x}", var_names.type);
+
+		instance_selected = false;
 	}
 }
 
@@ -225,8 +238,203 @@ void render_lobby_list()
 
 				ImGui::Text(player_amount.c_str());
 			}
+			ImGui::EndTable();
 		}
-		ImGui::EndTable();
+	}
+	ImGui::End();
+}
+
+void table_entry(const char* name, ImGuiDataType type, void* data, bool readonly = false, const char* format = nullptr)
+{
+	ImGui::PushID(data);
+	ImGui::TableNextRow();
+	ImGui::TableSetColumnIndex(0);
+	ImGui::Text(name);
+	ImGui::TableSetColumnIndex(1);
+	if (data)
+	{
+		switch (type)
+		{
+		case ImGuiDataType_Bool:
+			ImGui::Checkbox(name, (bool*)data);
+			break;
+
+		case ImGuiDataType_String:
+			ImGui::InputText(name, (char*)data, strlen((char*)data), ImGuiInputTextFlags_ReadOnly);
+			break;
+
+		default:
+			ImGui::InputScalar("##", type, data, nullptr, nullptr, format, readonly ? ImGuiInputTextFlags_ReadOnly : ImGuiInputTextFlags_None);
+		}
+	}
+	ImGui::PopID();
+}
+
+void table_entry_object(const char* name, YYObjectBase* object, bool readonly = false)
+{
+	ImGui::PushID(name);
+	ImGui::TableNextRow();
+	ImGui::TableSetColumnIndex(0);
+	
+	if (ImGui::TreeNodeEx(name, ImGuiTreeNodeFlags_LabelSpanAllColumns))
+	{
+		if (object)
+		{
+			table_entry("m_Capacity", ImGuiDataType_U32, &object->m_Capacity, readonly);
+			table_entry("m_Class", ImGuiDataType_U32, &object->m_Capacity, readonly);
+			table_entry("m_CurrentSlot", ImGuiDataType_S32, &object->m_CurrentSlot, readonly);
+			table_entry("m_DefineOwnProperty", ImGuiDataType_U32, &object->m_DefineOwnProperty, readonly, "0x%08x");
+			table_entry("m_DeleteOwnProperty", ImGuiDataType_U32, &object->m_DeleteOwnProperty, readonly, "0x%08x");
+			table_entry("m_Flags", ImGuiDataType_U32, &object->m_Flags, readonly);
+			table_entry("m_GCCreationFrame", ImGuiDataType_S32, &object->m_GCCreationFrame, readonly);
+			table_entry("m_GCGeneration", ImGuiDataType_S32, &object->m_GCGeneration, readonly);
+			table_entry("m_GetProperty", ImGuiDataType_U32, &object->m_GetProperty, readonly, "0x%08x");
+			table_entry("m_ObjectKind", ImGuiDataType_S32, &object->m_ObjectKind, readonly);
+			table_entry_object("m_pNextObject", object->m_pNextObject, readonly);
+			table_entry_object("m_pPrevObject", object->m_pNextObject, readonly);
+			table_entry_object("m_prototype", object->m_prototype, readonly);
+			table_entry("m_RValueInitType", ImGuiDataType_S32, &object->m_RValueInitType, readonly);
+			table_entry("m_VariableCount", ImGuiDataType_U32, &object->m_VariableCount, readonly);
+			table_entry("m_Visited", ImGuiDataType_U32, &object->m_Visited, readonly);
+			table_entry("m_VisitedGC", ImGuiDataType_U32, &object->m_VisitedGC, readonly);
+			table_entry("m_WeakRef", ImGuiDataType_U32, &object->m_WeakRef, readonly, "0x%08x");
+			table_entry("m_WeakRefCount", ImGuiDataType_U32, &object->m_WeakRefCount, readonly);
+		}
+		ImGui::TreePop();
+	}
+	ImGui::PopID();
+}
+
+void table_entry_code(const char* name, CCode* code, bool readonly = false)
+{
+	ImGui::PushID(name);
+	ImGui::TableNextRow();
+	ImGui::TableSetColumnIndex(0);
+	if (ImGui::TreeNodeEx(name, ImGuiTreeNodeFlags_LabelSpanAllColumns))
+	{
+		if (code)
+		{
+			table_entry_code("m_Next", code->m_Next);
+			table_entry("m_Kind", ImGuiDataType_S32, &code->m_Kind, readonly);
+			table_entry("m_Compiled", ImGuiDataType_S32, &code->m_Compiled, readonly);
+			table_entry("m_Str", ImGuiDataType_String, (void*)code->m_Str, readonly);
+			table_entry("m_VmInstance", ImGuiDataType_U32, &code->m_VmInstance, readonly, "0x%08x");
+			table_entry("m_VmDebugInfo", ImGuiDataType_U32, &code->m_VmDebugInfo, readonly, "0x%08x");
+			table_entry("m_Name", ImGuiDataType_String, (void*)code->m_Name, readonly);
+			table_entry("m_CodeIndex", ImGuiDataType_S32, &code->m_CodeIndex, readonly);
+			table_entry("m_Watch", ImGuiDataType_Bool, &code->m_Watch, readonly);
+			table_entry("m_Offset", ImGuiDataType_S32, &code->m_Offset, readonly);
+			table_entry("m_LocalsCount", ImGuiDataType_S32, &code->m_LocalsCount, readonly);
+			table_entry("m_ArgsCount", ImGuiDataType_S32, &code->m_ArgsCount, readonly);
+			table_entry("m_Flags", ImGuiDataType_S32, &code->m_Flags, readonly);
+			table_entry_object("m_Prototype", code->m_Prototype, readonly);
+		}
+		ImGui::TreePop();
+	}
+	ImGui::PopID();
+}
+
+//table_entry("select", string_ref);
+void table_entry_rvalue(const char* name, RValue& data, bool readonly = false)
+{
+	ImGuiDataType imgui_type = ImGuiDataType_U32;
+	const char* format = nullptr;
+
+	switch (data.type)
+	{
+	case GML_TYPE_REAL: imgui_type = ImGuiDataType_Double; break;
+	case GML_TYPE_STRING: imgui_type = ImGuiDataType_String; break;
+	case GML_TYPE_ARRAY: imgui_type = ImGuiDataType_U32; format = "0x%08x"; break;
+	case GML_TYPE_POINTER: imgui_type = ImGuiDataType_U32; format = "0x%08x"; break;
+	case GML_TYPE_OBJECT: table_entry_object(name, data.value_object); return;
+	case GML_TYPE_INT32: imgui_type = ImGuiDataType_U32; break;
+	case GML_TYPE_INT64: imgui_type = ImGuiDataType_U64; break;
+	case GML_TYPE_BOOL: imgui_type = ImGuiDataType_Bool; break;
+	}
+
+	ImGui::PushID(name);
+	ImGui::TableNextRow();
+	ImGui::TableSetColumnIndex(0);
+	ImGui::Text(name);
+	ImGui::TableSetColumnIndex(1);
+	if (data.type != GML_TYPE_STRING)
+	{
+		ImGui::InputScalar("##", imgui_type, &data.value_ptr, nullptr, nullptr, format, readonly ? ImGuiInputTextFlags_ReadOnly : ImGuiInputTextFlags_None);
+	}
+	else
+	{
+		ImGui::InputText("##", (char*)data.value_stringref->string, data.value_stringref->size);
+	}
+	ImGui::PopID();
+}
+
+void render_instance_details()
+{
+	constexpr ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_HighlightHoveredColumn;
+
+	if (ImGui::Begin("Instance Details"))
+	{
+		if (ImGui::BeginTable("##", 2, flags))
+		{
+			ImGui::TableSetupScrollFreeze(0, 1);
+			ImGui::TableSetupColumn("Variable", ImGuiTableColumnFlags_None);
+			ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_None);
+			ImGui::TableHeadersRow();
+
+			table_entry("create_counter", ImGuiDataType_U64, &g_current_instance->create_counter);
+			table_entry("id", ImGuiDataType_U32, &g_current_instance->id);
+			table_entry("object_index", ImGuiDataType_U32, &g_current_instance->object_index);
+			table_entry("sprite_id", ImGuiDataType_U32, &g_current_instance->sprite_id);
+			table_entry("image_index", ImGuiDataType_Float, &g_current_instance->image_index);
+			table_entry("image_speed", ImGuiDataType_Float, &g_current_instance->image_speed);
+			table_entry("image_scale_x", ImGuiDataType_Float, &g_current_instance->image_scale_x);
+			table_entry("image_scale_y", ImGuiDataType_Float, &g_current_instance->image_scale_y);
+			table_entry("image_angle", ImGuiDataType_Float, &g_current_instance->image_angle);
+			table_entry("image_alpha", ImGuiDataType_Float, &g_current_instance->image_alpha);
+			table_entry("image_blend", ImGuiDataType_U32, &g_current_instance->image_blend);
+			table_entry("x", ImGuiDataType_Float, &g_current_instance->x);
+			table_entry("y", ImGuiDataType_Float, &g_current_instance->y);
+			table_entry("x_start", ImGuiDataType_Float, &g_current_instance->x_start);
+			table_entry("y_start", ImGuiDataType_Float, &g_current_instance->y_start);
+			table_entry("x_previous", ImGuiDataType_Float, &g_current_instance->x_previous);
+			table_entry("y_previous", ImGuiDataType_Float, &g_current_instance->y_previous);
+			table_entry("direction", ImGuiDataType_Float, &g_current_instance->direction);
+			table_entry("speed", ImGuiDataType_Float, &g_current_instance->speed);
+			table_entry("friction", ImGuiDataType_Float, &g_current_instance->friction);
+			table_entry("gravity_dir", ImGuiDataType_Float, &g_current_instance->gravity_dir);
+			table_entry("gravity", ImGuiDataType_Float, &g_current_instance->gravity);
+			table_entry("hspeed", ImGuiDataType_Float, &g_current_instance->hspeed);
+			table_entry("vspeed", ImGuiDataType_Float, &g_current_instance->vspeed);
+
+			table_entry_code("init_code", g_current_instance->init_code);
+			table_entry_code("precreate_code", g_current_instance->precreate_code);
+			table_entry_object("YYObjectBase", g_current_instance);
+		
+			if (g_instance_variable_names)
+			{
+				if (ImGui::TreeNodeEx("Instance Variables", ImGuiTreeNodeFlags_LabelSpanAllColumns))
+				{
+					RValue instance;
+					instance.value_instance = g_current_instance;
+					instance.type = GML_TYPE_OBJECT;
+
+					if (g_instance_variable_names->pArray)
+					{
+						for (size_t i = 0; i < g_instance_variable_names->pArray->length; i++)
+						{
+							GMLStringRef* string_ref = g_instance_variable_names->pArray->arr[i].value_stringref;
+							if (string_ref == nullptr) continue;
+
+							RValue variable = loader_get_instance_variable(instance, string_ref->string);
+
+							table_entry_rvalue(string_ref->string, variable);
+						}
+					}
+					ImGui::TreePop();
+				}
+			}
+			ImGui::EndTable();
+		}
 	}
 	ImGui::End();
 }
@@ -242,7 +450,7 @@ void render_lobby_list()
 //	g_ObjectHash is a Hashmap that contains pointers to all currently loaded objects in the current room
 void render_globals()
 {
-	if (ImGui::Begin("test"))
+	if (ImGui::Begin("Active Instances"))
 	{
 		for (int i = 0; i < (*g_ObjectHash)->m_count; i++)
 		{
@@ -261,8 +469,17 @@ void render_globals()
 				}
 			}
 		}
+		if (found_current_instance == false)
+		{
+			g_current_instance == nullptr;
+		}
 	}
 	ImGui::End();
+
+	if (g_current_instance)
+	{
+		render_instance_details();
+	}
 
 	if (ImGui::Begin(window_name.c_str()))
 	{
@@ -367,7 +584,7 @@ void render_dbg_console()
 		if (ImGui::Button("Scroll to Bottom"))
 			scroll_to_bottom = true;
 
-		internal_console* current_console = nullptr;
+		InternalConsole* current_console = nullptr;
 		if (ImGui::BeginTabBar("##Console"))
 		{
 			if (ImGui::BeginTabItem("Release Console"))
@@ -417,6 +634,8 @@ void render_dbg_console()
 void imgui_render()
 {
 	ImGui::BeginMainMenuBar();
+
+	ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
 
 	if (ImGui::BeginMenu("Windows"))
 	{
