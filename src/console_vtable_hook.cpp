@@ -10,8 +10,8 @@
 #include <vector>
 #include <cstdarg>
 
-internal_console g_dbgstream;
-internal_console g_relstream;
+InternalConsole g_dbgstream;
+InternalConsole g_relstream;
 
 tagIConsole* dbg_csol = nullptr;
 tagIConsole* rel_csol = nullptr;

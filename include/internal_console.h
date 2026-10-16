@@ -3,15 +3,15 @@
 #include <vector>
 #include "yoyo.h"
 
-struct item_entry
+struct ItemEntry
 {
 	std::string vm_callstack;
 	std::string msg;
 };
 
-struct internal_console
+struct InternalConsole
 {
-	std::vector<item_entry> items;
+	std::vector<ItemEntry> items;
 
 	void print(const char* msg);
 };

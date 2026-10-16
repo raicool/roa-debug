@@ -11,7 +11,7 @@ extern PFUNC_F_CALL F_VMGetCallStack;
 extern PFUNC_F_CALL F_ArrayGet;
 extern PFUNC_F_CALL F_ArrayLength1D;
 
-void internal_console::print(const char* msg)
+void InternalConsole::print(const char* msg)
 {
 	std::string _callstack_str;
 
@@ -22,9 +22,9 @@ void internal_console::print(const char* msg)
 	else
 		return;
 
-	if (_this_callstack.valueArray)
+	if (_this_callstack.value_array)
 	{
-		RefDynamicArrayOfRValue* arr_ptr = reinterpret_cast<RefDynamicArrayOfRValue*>(_this_callstack.valueArray);
+		RefDynamicArrayOfRValue* arr_ptr = reinterpret_cast<RefDynamicArrayOfRValue*>(_this_callstack.value_array);
 
 		for (int i = 0; i <= arr_ptr->pArray->length; i++)
 		{
@@ -35,7 +35,7 @@ void internal_console::print(const char* msg)
 
 			if (s->type == GML_TYPE_STRING)
 			{
-				_callstack_str.append(s->valueString->string);
+				_callstack_str.append(s->value_stringref->string);
 				_callstack_str.push_back('\n');
 			}
 			else

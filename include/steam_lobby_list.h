@@ -2,25 +2,25 @@
 
 #include "steam_api.h"
 
-struct async_steamapi_caller
+struct AsyncSteamAPICaller
 {
 	std::vector<CSteamID> lobbies;
 	uint32_t player_count;
 
-	CCallResult<async_steamapi_caller, LobbyMatchList_t> call_result_lobby_match_list;
-	CCallResult<async_steamapi_caller, NumberOfCurrentPlayers_t> call_player_number;
+	CCallResult<AsyncSteamAPICaller, LobbyMatchList_t> call_result_lobby_match_list;
+	CCallResult<AsyncSteamAPICaller, NumberOfCurrentPlayers_t> call_player_number;
 
 	void request_lobbies()
 	{
 		SteamMatchmaking()->AddRequestLobbyListDistanceFilter(k_ELobbyDistanceFilterWorldwide);
 		SteamAPICall_t hSteamAPICall = SteamMatchmaking()->RequestLobbyList();
-		call_result_lobby_match_list.Set(hSteamAPICall, this, &async_steamapi_caller::on_lobby_match_list);
+		call_result_lobby_match_list.Set(hSteamAPICall, this, &AsyncSteamAPICaller::on_lobby_match_list);
 	}
 
 	void request_player_count()
 	{
 		SteamAPICall_t hSteamAPICall = SteamUserStats()->GetNumberOfCurrentPlayers();
-		call_player_number.Set(hSteamAPICall, this, &async_steamapi_caller::on_get_player_count);
+		call_player_number.Set(hSteamAPICall, this, &AsyncSteamAPICaller::on_get_player_count);
 	}
 
 	void on_lobby_match_list(LobbyMatchList_t* pLobbyMatchList, bool bIOFailure)

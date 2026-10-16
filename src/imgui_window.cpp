@@ -16,17 +16,18 @@ extern ObjectsHash** g_ObjectHash;
 extern int** g_RngIndex;
 extern int** state;
 
-extern internal_console g_dbgstream;
-extern internal_console g_relstream;
+extern InternalConsole g_dbgstream;
+extern InternalConsole g_relstream;
 
 extern SIGNATURE_SCRIPT_PERFORM Script_Perform;
 extern int __vars_get_names__;
 
 int state_prev[16]{ 0 };
 
-async_steamapi_caller g_steamapi_request;
+
 const std::string window_name = std::format("{}", MOD_NAME);
 
+AsyncSteamAPICaller g_steamapi_request;
 enum
 {
 	WINDOW_GLOBALS     = (1 << 0),
