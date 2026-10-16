@@ -1,6 +1,6 @@
 #pragma once
 
-#include <GMLScriptEnv/yoyo.h>
+#include <loader/yoyo.h>
 
 
 #pragma pack(push, 1)
@@ -14,21 +14,6 @@ typedef RValue& (*PFUNC_F_CALL)(
 	_In_ int argCount,
 	_In_ RValue* args
 	);
-
-struct DynamicArrayOfRValue
-{
-	int length;
-	RValue* arr;
-};
-
-struct RefDynamicArrayOfRValue
-{
-	int	refcount;
-	DynamicArrayOfRValue* pArray;
-	void* pOwner;
-	int visited;
-	int length;
-};
 
 template<typename T>
 struct Hash
