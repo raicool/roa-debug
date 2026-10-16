@@ -14,6 +14,8 @@ void imgui_init()
 	ImGui::CreateContext();
 	HWND window = loader_get_window();
 	ImGui_ImplWin32_Init(window);
+
+	ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 }
 
 void handle_wndproc(
@@ -23,7 +25,6 @@ void handle_wndproc(
 	LPARAM lParam
 )
 {
-
 	if (uMsg == WM_KEYDOWN && wParam == VK_F3)
 	{
 		g_uiflag ^= 1;
