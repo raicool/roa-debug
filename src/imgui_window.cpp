@@ -535,6 +535,7 @@ void table_entry_rvalue(const char* name, RValue* data, bool readonly = false)
 	case GML_TYPE_ARRAY:
 		ImGui::InputScalar("##", spec.imgui_type, &data->value_s64, nullptr, nullptr, spec.format, readonly ? ImGuiInputTextFlags_ReadOnly : ImGuiInputTextFlags_None);
 		ImGui::SetNextItemStorageID(reinterpret_cast<ImGuiID>(data));
+		ImGui::TableNextRow();
 		ImGui::TableSetColumnIndex(0);
 		if (ImGui::TreeNodeEx("Values", treenode_flags))
 		{
