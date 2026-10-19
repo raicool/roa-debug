@@ -1,6 +1,7 @@
 #pragma once
 
 #include <loader/yoyo.h>
+#include <functional>
 
 
 #pragma pack(push, 1)
@@ -61,6 +62,37 @@ struct CObjectHashMap
 			}
 		}
 		return nullptr;
+	}
+
+	bool contains(T* value) const
+	{
+		if (!m_buckets)
+		{
+			return false;
+		}
+
+		uint32_t index = 0 & m_mask;
+		for (auto node = m_buckets[index].m_head; node; node = node->m_next)
+		{
+			if (node->m_object == value)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	void for_each(std::function<void(CObjectGM*)> func)
+	{
+		if (!m_buckets)
+		{
+			return;
+		}
+
+		for (auto i = 0; i < m_count; i++)
+		{
+			func(find_object(i));
+		}
 	}
 };
 
