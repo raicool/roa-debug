@@ -4,6 +4,7 @@
 
 #include <imgui_impl_dx11.h>
 #include <imgui_impl_win32.h>
+#include <implot.h>
 
 #define IS_MOUSE_EVENT(x) (x >= WM_MOUSEFIRST && x <= WM_MOUSELAST)
 
@@ -12,6 +13,7 @@ bool g_uiflag = true;
 void imgui_init()
 {
 	ImGui::CreateContext();
+	ImPlot::CreateContext();
 	HWND window = loader_get_window();
 	ImGui_ImplWin32_Init(window);
 

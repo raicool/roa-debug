@@ -11,6 +11,8 @@ add_compile_definitions("VERSION_STR=\"${ROA_DEBUG_VERSION}\"")
 
 file(GLOB_RECURSE CXX_SOURCE "src/*.cpp")
 file(GLOB IMGUI_SOURCE 
+    "vendor/implot/implot.cpp"
+    "vendor/implot/implot_items.cpp"
     "vendor/imgui/imgui.cpp"
     "vendor/imgui/imgui_widgets.cpp"
     "vendor/imgui/imgui_tables.cpp"
@@ -33,6 +35,9 @@ target_include_directories(${PROJECT_NAME} PRIVATE "vendor/roa-mod-loader/loader
 # imgui
 target_include_directories(${PROJECT_NAME} PRIVATE "vendor/imgui")
 target_include_directories(${PROJECT_NAME} PRIVATE "vendor/imgui/backends")
+
+# implot
+target_include_directories(${PROJECT_NAME} PRIVATE "vendor/implot")
 
 # steamworks
 set(STEAM_API_LIB "${CMAKE_SOURCE_DIR}/vendor/steamworks_sdk_149/redistributable_bin/steam_api.lib")
