@@ -1010,8 +1010,6 @@ void imgui_render()
 	}
 	ImGui::EndMainMenuBar();
 
-	ImGui::ShowDemoWindow();
-
 	ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
 
 	render_memoryusage();
