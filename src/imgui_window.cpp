@@ -328,6 +328,7 @@ void object_treenode(const CObjectGM* object)
 	auto tree_label = [&name, &object]() -> bool
 		{
 			bool pressed = ImGui::TreeNodeEx(name, treenode_flags);
+			TOOLTIP("Parent Object: %s", object->m_ParentObject ? object->m_ParentObject->m_Name : "");
 			ImGui::SameLine();
 			ImGui::PushStyleColor(ImGuiCol_Text, 0xff7f7f7f);
 			ImGui::Text("(%i instances)", object->m_Instances.m_Count);
@@ -525,9 +526,12 @@ void table_entry_object(const char* name, YYObjectBase* object, bool readonly)
 			table_entry("m_GCGeneration", ImGuiDataType_S32, &object->m_GCGeneration, readonly);
 			table_entry("m_GetProperty", ImGuiDataType_U32, &object->m_GetProperty, readonly, "0x%08x");
 			table_entry("m_ObjectKind", ImGuiDataType_S32, &object->m_ObjectKind, readonly);
-			table_entry_object("m_pNextObject", object->m_pNextObject, true);
-			table_entry_object("m_pPrevObject", object->m_pNextObject, true);
-			table_entry_object("m_prototype", object->m_prototype, true);
+
+			// unsafe if no object link is present
+			//table_entry_object("m_pNextObject", object->m_pNextObject, true);
+			//table_entry_object("m_pPrevObject", object->m_pNextObject, true);
+			//table_entry_object("m_prototype", object->m_prototype, true);
+
 			table_entry("m_RValueInitType", ImGuiDataType_S32, &object->m_RValueInitType, readonly);
 			table_entry("m_VariableCount", ImGuiDataType_U32, &object->m_VariableCount, readonly);
 			table_entry("m_Visited", ImGuiDataType_U32, &object->m_Visited, readonly);
