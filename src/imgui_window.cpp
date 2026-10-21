@@ -504,14 +504,6 @@ void table_entry(const char* name, ImGuiDataType type, void* data, bool readonly
 		}
 	}
 	ImGui::PopID();
-
-	ImGuiTable* table = ImGui::GetCurrentContext()->CurrentTable;
-	ImRect rect = table->BgClipRect;
-
-	const auto old_cursor_pos = ImGui::GetCursorPos();
-	
-	ImGui::SetCursorPos(rect.GetTL());
-	ImGui::Dummy(rect.GetSize());
 }
 
 void table_entry_object(const char* name, YYObjectBase* object, bool readonly)
