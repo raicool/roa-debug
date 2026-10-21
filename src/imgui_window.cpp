@@ -4,6 +4,7 @@
 #include "instance.h"
 #include "mod.h"
 #include "steam_lobby_list.h"
+#include "utils.h"
 #include "yoyo.h"
 
 #include <loader/d3d11_hook.h>
@@ -19,7 +20,6 @@
 extern ObjectsHash** g_ObjectHash;
 extern int** g_RngIndex;
 extern int** state;
-
 extern InternalConsole g_dbgstream;
 extern InternalConsole g_relstream;
 
@@ -41,6 +41,11 @@ bool window_instance_browser_open = true;
 float window_background_alpha = 0.78;
 
 size_t g_instance_count = 0;
+AsyncSteamAPICaller g_steamapi_request;
+CInstance* g_current_instance;
+RefDynamicArrayOfRValue* g_instance_variable_names;
+
+char g_variable_filter_input_buffer[128]{ 0 };
 
 enum RValueTypeColorEnum : uint32_t
 {
@@ -71,6 +76,7 @@ const std::unordered_map<int, RValueDisplaySpec> g_rvalue_display_specs =
 		RValueDisplaySpec
 		{
 			.imgui_type = ImGuiDataType_Double,
+			.format = "%.3g",
 			.type_string = "real",
 			.type_color = RValueTypeColorEnum::TYPE_REAL
 		}
@@ -161,20 +167,7 @@ const std::unordered_map<int, RValueDisplaySpec> g_rvalue_display_specs =
 	},
 };
 
-AsyncSteamAPICaller g_steamapi_request;
-CInstance* g_current_instance;
-RefDynamicArrayOfRValue* g_instance_variable_names;
-
-enum
-{
-	WINDOW_GLOBALS     = (1 << 0),
-	WINDOW_DBG_CONSOLE = (1 << 1),
-	WINDOW_LOBBY_LIST  = (1 << 2),
-
-	WINDOW_DEFAULTS = WINDOW_GLOBALS | WINDOW_DBG_CONSOLE | WINDOW_LOBBY_LIST
-};
-
-enum lobby_game_type
+enum LobbyTypeEnum
 {
 	UNKNOWN = 0,
 	EXHIBITION = '1',
@@ -185,9 +178,7 @@ enum lobby_game_type
 constexpr ImVec4 color_rngval_active = ImVec4(0.68, 0.92, 0.57, 0.65);
 constexpr ImVec4 color_rngval_update = ImVec4(0.92, 0.57, 0.57, 0.65);
 
-uint32_t windows_flag = WINDOW_DEFAULTS;
-
-ImVec4 imvec4_mix(ImVec4 r, ImVec4 l)
+inline ImVec4 imvec4_mix(ImVec4 r, ImVec4 l)
 {
 	return ImVec4(
 		(r.x + l.x) / 2.0,
@@ -197,33 +188,29 @@ ImVec4 imvec4_mix(ImVec4 r, ImVec4 l)
 	);
 }
 
-char instance_sel_name[128];
-bool instance_selected;
 void draw_instances(const LinkedList<CInstancePadded>* inst_list)
 {
 	CInstance* instance = inst_list->m_First->instance;
 
 	for (uint32_t idx = 0; idx < inst_list->m_Count; idx++)
 	{
-		sprintf_s(instance_sel_name, 128, "#%i (0x%08x)", instance->id, static_cast<void*>(instance));
+		std::string instance_name = std::format("#{} (0x{:08x})", instance->id, (uintptr_t)instance);
 
-		ImGui::Selectable(instance_sel_name, &instance_selected);
+		ImGui::Selectable(instance_name.data());
 
-		if (instance_selected)
+		if (ImGui::IsItemActivated())
 		{
 			g_current_instance = instance;
 
-			RValue val;
-			val.value_object = (YYObjectBase*)g_current_instance;
-			val.type = GML_TYPE_OBJECT;
 			if (g_instance_variable_names)
 			{
+				// call MemoryManager::Free on old array before loading new variable names
 				if (g_instance_variable_names->pArray)
 					loader_memory_free(g_instance_variable_names->pArray->arr);
 			}
-			g_instance_variable_names = loader_get_instance_variable_names(val);
 
-			instance_selected = false;
+			// create array of MemoryManager allocated variable name strings for new instance
+			g_instance_variable_names = loader_get_instance_variable_names(g_current_instance);
 		}
 
 		instance = instance->next;
@@ -384,9 +371,9 @@ std::string get_game_type_string(CSteamID lobby_id)
 
 	switch (gametype_u8)
 	{
-	case lobby_game_type::EXHIBITION: game_type.append("Casual"); break;
-	case lobby_game_type::PRIVATE: game_type.append("Friendlies"); break;
-	case lobby_game_type::RANKED: game_type.append("Ranked"); break;
+	case LobbyTypeEnum::EXHIBITION: game_type.append("Casual"); break;
+	case LobbyTypeEnum::PRIVATE: game_type.append("Friendlies"); break;
+	case LobbyTypeEnum::RANKED: game_type.append("Ranked"); break;
 	default: game_type.append("Unknown");
 	}
 
@@ -600,30 +587,48 @@ void table_entry_code(const char* name, CCode* code, bool readonly)
 	ImGui::PopID();
 }
 
-void table_entry_dynarray(const char* name, RefDynamicArrayOfRValue* data, bool readonly)
+void table_entry_array(const char* name, ImGuiDataType type, void* data, size_t stride, size_t length, bool readonly)
 {
-	ImGui::InputScalar("##", ImGuiDataType_U32, &data, nullptr, nullptr, "0x%08x", ImGuiInputTextFlags_ReadOnly);
-	ImGui::SetNextItemStorageID(reinterpret_cast<ImGuiID>(data));
+	// NAME AND POINTER
+	ImGui::PushID(name);
 	ImGui::TableNextRow();
 	ImGui::TableSetColumnIndex(0);
+	ImGui::Text(name);
+	ImGui::TableSetColumnIndex(1);
+	ImGui::InputScalar("##", ImGuiDataType_U32, &data, nullptr, nullptr, "0x%08x", ImGuiInputTextFlags_ReadOnly);
+
+	// VALUES
+	ImGui::TableNextRow();
+	ImGui::TableSetColumnIndex(0);
+	ImGui::SetNextItemStorageID(reinterpret_cast<ImGuiID>(data));
 	if (ImGui::TreeNodeEx("Values", treenode_flags))
 	{
-		const auto* dynarray = data->pArray;
-
-		if (dynarray)
+		char* s = reinterpret_cast<char*>(data);
+		for (size_t i = 0; i < length; i++)
 		{
-			for (size_t i = 0; i < dynarray->length; i++)
-			{
-				const std::string array_offset_string = std::format("{}[{}]", name, i);
-				table_entry_rvalue(array_offset_string.c_str(), &dynarray->arr[i], readonly);
-			}
+			const std::string array_offset_string = std::format("{}[{}]", name, i);
+
+			table_entry(array_offset_string.data(), type, s, readonly, nullptr);
+
+			s += stride;
 		}
 		ImGui::TreePop();
 	}
+
+	ImGui::PopID();
 }
 
 void table_entry_rvalue(const char* name, RValue* data, bool readonly)
 {
+	if (strlen(g_variable_filter_input_buffer) > 0)
+	{
+		const char* result = strstr(name, g_variable_filter_input_buffer);
+		if (result == nullptr || result == name)
+		{
+			return;
+		}
+	}
+
 	RValueDisplaySpec spec;
 	if (g_rvalue_display_specs.contains(data->type))
 	{
@@ -652,7 +657,27 @@ void table_entry_rvalue(const char* name, RValue* data, bool readonly)
 		break;
 
 	case GML_TYPE_ARRAY: // RefDynamicArrayOfRValue
-		table_entry_dynarray(name, static_cast<RefDynamicArrayOfRValue*>(data->value_array), readonly);
+		// POINTER
+		ImGui::InputScalar("##", ImGuiDataType_U32, &data->value_array, nullptr, nullptr, "0x%08x", ImGuiInputTextFlags_ReadOnly);
+
+		// VALUES
+		ImGui::TableNextRow();
+		ImGui::TableSetColumnIndex(0);
+		ImGui::SetNextItemStorageID(reinterpret_cast<ImGuiID>(data->value_array));
+		if (ImGui::TreeNodeEx("Values", treenode_flags))
+		{
+			const auto* dynarray = static_cast<RefDynamicArrayOfRValue*>(data->value_array)->pArray;
+
+			if (dynarray)
+			{
+				for (size_t i = 0; i < dynarray->length; i++)
+				{
+					const std::string array_offset_string = std::format("{}[{}]", name, i);
+					table_entry_rvalue(array_offset_string.data(), &dynarray->arr[i], readonly);
+				}
+			}
+			ImGui::TreePop();
+		}
 		break;
 
 	default:
@@ -703,7 +728,10 @@ void render_instance_details()
 	{
 		ImGui::Text("Current Instance: %s (#%u)", g_current_instance->object->m_Name, g_current_instance->id);
 
-		if (ImGui::BeginTable("##", 2, flags))
+		ImGuiStyle& style = ImGui::GetStyle();
+		const float footer_height_to_reserve = style.SeparatorSize + style.ItemSpacing.y + ImGui::GetFrameHeightWithSpacing();
+
+		if (ImGui::BeginTable("##", 2, flags, ImVec2(0, -footer_height_to_reserve)))
 		{
 			ImGui::TableSetupScrollFreeze(0, 1);
 			ImGui::TableSetupColumn("Variable", ImGuiTableColumnFlags_None);
@@ -739,6 +767,22 @@ void render_instance_details()
 				table_entry("gravity", ImGuiDataType_Float, &g_current_instance->gravity);
 				table_entry("hspeed", ImGuiDataType_Float, &g_current_instance->hspeed);
 				table_entry("vspeed", ImGuiDataType_Float, &g_current_instance->vspeed);
+				// missing tagYYRect bbox
+				table_entry_array("timers", ImGuiDataType_S32, &g_current_instance->timers, sizeof(int), 12);
+				// missing int* timeline_path
+				table_entry("old_object", ImGuiDataType_U32, &g_current_instance->old_object, true, "0x%08x");
+				table_entry("layer_id", ImGuiDataType_S32, &g_current_instance->layer_id);
+				table_entry("mask_index", ImGuiDataType_S32, &g_current_instance->mask_index);
+				table_entry("mouse_over_count", ImGuiDataType_S32, &g_current_instance->mouse_over_count);
+				// missing CInstance* next
+				// missing CInstance* prev
+				// missing SLink collision_link
+				// missing SLink dirty_link
+				// missing SLink with_link
+				table_entry("depth", ImGuiDataType_Float, &g_current_instance->depth);
+				table_entry("current_depth", ImGuiDataType_Float, &g_current_instance->current_depth);
+				table_entry("last_image_number", ImGuiDataType_Float, &g_current_instance->last_image_number);
+				table_entry("collision_test_number", ImGuiDataType_U32, &g_current_instance->collision_test_number);
 
 				ImGui::TreePop();
 			}
@@ -759,6 +803,14 @@ void render_instance_details()
 			}
 			ImGui::EndTable();
 		}
+
+		ImGui::Separator();
+		if (ImGui::Button("x"))
+		{
+			memset(g_variable_filter_input_buffer, 0, 128);
+		}
+		ImGui::SameLine();
+		ImGui::InputText("Filter", g_variable_filter_input_buffer, 128);
 	}
 	ImGui::End();
 }
