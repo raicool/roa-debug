@@ -24,6 +24,8 @@ DWORD WINAPI entry(LPVOID hModule)
 
 	imgui_init();
 
+	loader_log_info("welcome to roa-debug version {}", VERSION_STR);
+
 	// add a callback to be called whenever a frame is rendered
 	loader_add_present_callback(dx_present);
 
