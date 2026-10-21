@@ -23,13 +23,11 @@ extern int** state;
 extern InternalConsole g_dbgstream;
 extern InternalConsole g_relstream;
 
-int state_prev[16]{ 0 };
-
-const std::string window_name = std::format("{}", MOD_NAME);
-
 constexpr ImGuiTreeNodeFlags treenode_flags = ImGuiTreeNodeFlags_LabelSpanAllColumns | ImGuiTreeNodeFlags_DrawLinesFull;
 constexpr ImPlotFlags memory_graph_plot_flags = ImPlotFlags_NoFrame | ImPlotFlags_NoTitle | ImPlotFlags_NoMenus | ImPlotFlags_NoBoxSelect;
 constexpr ImPlotAxisFlags memory_graph_plot_axis_flags = ImPlotAxisFlags_NoLabel | ImPlotAxisFlags_AutoFit | ImPlotAxisFlags_PanStretch;
+
+const std::string window_name = MOD_NAME;
 
 bool window_console_open = true;
 bool window_memory_stats_open = true;
@@ -175,20 +173,19 @@ enum LobbyTypeEnum
 	RANKED = '3',
 };
 
-constexpr ImVec4 color_rngval_active = ImVec4(0.68, 0.92, 0.57, 0.65);
-constexpr ImVec4 color_rngval_update = ImVec4(0.92, 0.57, 0.57, 0.65);
-
-inline ImVec4 imvec4_mix(ImVec4 r, ImVec4 l)
+inline ImVec4 imvec4_mix(ImVec4 r, ImVec4 l, float factor = 0.5f)
 {
+	factor = std::clamp(factor, 0.0f, 1.0f);
+
 	return ImVec4(
-		(r.x + l.x) / 2.0,
-		(r.y + l.y) / 2.0,
-		(r.z + l.z) / 2.0,
-		(r.w + l.w) / 2.0
+		((r.x * (1 - factor)) + (l.x * factor)),
+		((r.y * (1 - factor)) + (l.y * factor)),
+		((r.z * (1 - factor)) + (l.z * factor)),
+		((r.w * (1 - factor)) + (l.w * factor))
 	);
 }
 
-void draw_instances(const LinkedList<CInstancePadded>* inst_list)
+void render_instances(const LinkedList<CInstancePadded>* inst_list)
 {
 	CInstance* instance = inst_list->m_First->instance;
 
@@ -196,7 +193,9 @@ void draw_instances(const LinkedList<CInstancePadded>* inst_list)
 	{
 		std::string instance_name = std::format("#{} (0x{:08x})", instance->id, (uintptr_t)instance);
 
-		ImGui::Selectable(instance_name.data());
+		ImGui::PushStyleColor(ImGuiCol_Text, RValueTypeColorEnum::TYPE_UNDEFINED);
+		ImGui::Selectable(instance_name.data(), g_current_instance == instance);
+		ImGui::PopStyleColor();
 
 		if (ImGui::IsItemActivated())
 		{
@@ -322,13 +321,17 @@ void render_memoryusage()
 	ImGui::End();
 }
 
-void object_treenode(const CObjectGM* object)
+void render_cobjectgm_treenode(const CObjectGM* object)
 {
 	const char* name = object->m_Name;
 	auto tree_label = [&name, &object]() -> bool
 		{
 			bool pressed = ImGui::TreeNodeEx(name, treenode_flags);
-			TOOLTIP("Parent Object: %s", object->m_ParentObject ? object->m_ParentObject->m_Name : "");
+			if (object->m_ParentObject)
+			{
+				TOOLTIP("Parent Object: %s", object->m_ParentObject->m_Name);
+			}
+
 			ImGui::SameLine();
 			ImGui::PushStyleColor(ImGuiCol_Text, 0xff7f7f7f);
 			ImGui::Text("(%i instances)", object->m_Instances.m_Count);
@@ -338,13 +341,13 @@ void object_treenode(const CObjectGM* object)
 
 	if (tree_label())
 	{
-		draw_instances(&object->m_Instances);
+		render_instances(&object->m_Instances);
 
 		ImGui::TreePop();
 	}
 }
 
-void draw_callstack_tooltip(std::string& vm_callstack)
+void render_callstack_tooltip(std::string& vm_callstack)
 {
 	ImGui::BeginTooltip();
 
@@ -840,7 +843,7 @@ void render_instance_browser()
 
 				g_instance_count += this_object->m_Instances.m_Count;
 
-				object_treenode(this_object);
+				render_cobjectgm_treenode(this_object);
 
 				CInstance* inst = this_object->m_Instances.m_First->instance;
 				for (uint32_t idx = 0; idx < this_object->m_Instances.m_Count; idx++)
@@ -863,6 +866,12 @@ void render_instance_browser()
 	}
 }
 
+int state_prev[16]{ 0 };
+float state_background_glow_timer[16]{ 0 };
+
+constexpr ImVec4 color_rngval_update = ImVec4(0.68, 1.0f, 0.57, 0.75f);
+constexpr ImVec4 color_rngval_active = ImVec4(0.92, 0.57, 0.57, 1.0f);
+
 // some notes:
 // RNG:
 //	current rng value = state[g_RngIndex] both variables are set by function YYRandom()
@@ -877,7 +886,7 @@ void render_globals()
 	if (window_main_open == false)
 		return;
 
-	if (ImGui::Begin(window_name.c_str(), &window_main_open))
+	if (ImGui::Begin(window_name.data(), &window_main_open))
 	{
 		const int _v_RngIndex = **g_RngIndex;
 		int* _p_state = *state;
@@ -888,7 +897,7 @@ void render_globals()
 			"\tg_RngIndex = (@0x{:08x})\n"
 			"\n"
 			"YYC Globals:\n"
-			"\tg_RngIndex = {:>2}/16\n"
+			"\tg_RngIndex = {:>2}/15\n"
 			"\tstate[g_RngIndex] = 0x{:08x}\n",
 			(uint32_t)g_ObjectHash,
 			(uint32_t)g_RngIndex,
@@ -896,10 +905,14 @@ void render_globals()
 			(unsigned)_p_state[_v_RngIndex]
 		);
 
-		ImGui::Text(_globals_str.c_str());
+		ImGui::Text(_globals_str.data());
 
 		if (ImGui::TreeNode("Rng State Values"))
 		{
+			ImGui::PushStyleColor(ImGuiCol_FrameBg, 0x00000000);
+			ImGui::PushStyleColor(ImGuiCol_FrameBgActive, 0x00000000);
+			ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, 0x00000000);
+
 			if (ImGui::BeginTable("##", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
 			{
 				ImGui::TableSetupScrollFreeze(0, 1);
@@ -907,46 +920,51 @@ void render_globals()
 				ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_None);
 				ImGui::TableHeadersRow();
 
+				ImGui::TableNextRow();
+				ImGui::TableSetColumnIndex(0);
+
 				std::string _state_offset_str;
-				auto back_color = ImGui::GetStyleColorVec4(ImGuiCol_TableRowBg);
-				auto back_color_alt = ImGui::GetStyleColorVec4(ImGuiCol_TableRowBgAlt);
+				const auto back_color = ImGui::GetStyleColorVec4(ImGuiCol_TableRowBg);
+				const auto back_color_alt = ImGui::GetStyleColorVec4(ImGuiCol_TableRowBgAlt);
 
-				auto back_color_active = imvec4_mix(back_color, color_rngval_active);
-				auto back_color_alt_active = imvec4_mix(back_color_alt, color_rngval_active);
-
-				auto back_color_update = imvec4_mix(back_color, color_rngval_update);
-				auto back_color_update_active = imvec4_mix(back_color_alt, color_rngval_update);
+				const auto back_color_active = imvec4_mix(back_color, color_rngval_active);
+				const auto back_color_alt_active = imvec4_mix(back_color_alt, color_rngval_active);
 
 				for (uint8_t i = 0; i <= 0xf; i++)
 				{
+					ImGui::PushID(i);
+
 					if (state_prev[i] ^ _p_state[i])
 					{
-						// highlight updated value with red
-						ImGui::PushStyleColor(ImGuiCol_TableRowBg, back_color_update);
-						ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, back_color_update_active);
-					}
-					else if (i == _v_RngIndex)
-					{
-						// highlight current value with green
-						ImGui::PushStyleColor(ImGuiCol_TableRowBg, back_color_active);
-						ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, back_color_alt_active);
-					}
-					else
-					{
-						ImGui::PushStyleColor(ImGuiCol_TableRowBg, back_color);
-						ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, back_color_alt);
+						state_background_glow_timer[i] = 1.0f;
 					}
 					state_prev[i] = _p_state[i];
-					
-					ImGui::TableNextRow();
-					ImGui::TableSetColumnIndex(0);
 
+					ImVec4 current_row_bg = back_color;
+					ImVec4 current_row_bg_alt = back_color_alt;
+
+					if (i == _v_RngIndex)
+					{
+						// highlight current value with green
+						current_row_bg = back_color_active;
+						current_row_bg_alt = back_color_alt_active;
+					}
+					else if (state_background_glow_timer[i] > 0)
+					{
+						state_background_glow_timer[i] -= ImGui::GetIO().DeltaTime;
+
+						current_row_bg = imvec4_mix(back_color, color_rngval_update, state_background_glow_timer[i]);
+						current_row_bg_alt = imvec4_mix(back_color_alt, color_rngval_update, state_background_glow_timer[i]);
+					}
+
+					ImGui::PushStyleColor(ImGuiCol_TableRowBg, current_row_bg);
+					ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, current_row_bg_alt);
+
+					ImGui::TableSetColumnIndex(0);
 					_state_offset_str = std::format("state[{}]", i);
-					ImGui::Text(_state_offset_str.c_str());
+					ImGui::Text(_state_offset_str.data());
 
 					ImGui::TableSetColumnIndex(1);
-
-					ImGui::PushID(_v_RngIndex);
 					ImGui::InputScalar(
 						"##",
 						ImGuiDataType_U32,
@@ -956,13 +974,18 @@ void render_globals()
 						"%08x",
 						ImGuiInputTextFlags_CharsHexadecimal
 					);
-					ImGui::PopID();
 
+					ImGui::TableNextRow();
+					
 					ImGui::PopStyleColor(2);
+					ImGui::PopID();
 				}
 
 				ImGui::EndTable();
 			}
+
+			ImGui::PopStyleColor(3);
+
 			ImGui::TreePop();
 		}
 	}
@@ -1009,7 +1032,7 @@ void render_dbg_console()
 					ImGui::Text(_entry.msg.c_str());
 
 					if (ImGui::IsItemHovered()) 
-						draw_callstack_tooltip(_entry.vm_callstack);
+						render_callstack_tooltip(_entry.vm_callstack);
 				}
 
 				if (scroll_to_bottom || auto_scroll)
