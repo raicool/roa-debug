@@ -12,24 +12,39 @@ bool g_uiflag = true;
 
 void handle_wndproc(
 	const HWND hWnd,
-	UINT uMsg,
-	WPARAM wParam,
-	LPARAM lParam
+	UINT& uMsg,
+	WPARAM& wParam,
+	LPARAM& lParam
 )
 {
-	if (uMsg == WM_KEYDOWN && wParam == VK_F3)
+	LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+	ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam);
+
+	if (uMsg == WM_KEYDOWN)
 	{
-		g_uiflag ^= 1;
+		if (wParam == VK_F3)
+		{
+			g_uiflag ^= 1;
+		}
+
+		// Clear wndproc message so rivals doesnt register key event
+		if (ImGui::GetIO().WantCaptureKeyboard)
+		{
+			uMsg = 0;
+		}
 	}
 
 	if (IS_MOUSE_EVENT(uMsg))
 	{
 		HCURSOR cursor = LoadCursorA(0, IDC_ARROW);
 		SetCursor(cursor);
-	}
 
-	LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-	ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam);
+		// Clear wndproc message so rivals doesnt register mouse event
+		if (ImGui::GetIO().WantCaptureMouse)
+		{
+			uMsg = 0;
+		}
+	}
 }
 
 

@@ -12,7 +12,7 @@ void dx_present(
 
 void handle_wndproc(
 	const HWND hWnd,
-	UINT uMsg,
-	WPARAM wParam,
-	LPARAM lParam
+	UINT& uMsg,
+	WPARAM& wParam,
+	LPARAM& lParam
 );
