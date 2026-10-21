@@ -8,8 +8,6 @@
 #include <memory>
 
 extern PFUNC_F_CALL F_VMGetCallStack;
-extern PFUNC_F_CALL F_ArrayGet;
-extern PFUNC_F_CALL F_ArrayLength1D;
 
 void InternalConsole::print(const char* msg)
 {

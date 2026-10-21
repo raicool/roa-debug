@@ -2,6 +2,8 @@
 
 #include "steam_api.h"
 
+#include <vector>
+
 struct AsyncSteamAPICaller
 {
 	std::vector<CSteamID> lobbies;

@@ -9,6 +9,8 @@
 #include <loader/d3d11_hook.h>
 
 #include <implot.h>
+#include <imgui_internal.h>
+#include <imgui_impl_win32.h>
 
 #include <format>
 
@@ -26,6 +28,19 @@ int state_prev[16]{ 0 };
 const std::string window_name = std::format("{}", MOD_NAME);
 
 constexpr ImGuiTreeNodeFlags treenode_flags = ImGuiTreeNodeFlags_LabelSpanAllColumns | ImGuiTreeNodeFlags_DrawLinesFull;
+constexpr ImPlotFlags memory_graph_plot_flags = ImPlotFlags_NoFrame | ImPlotFlags_NoTitle | ImPlotFlags_NoMenus | ImPlotFlags_NoBoxSelect;
+constexpr ImPlotAxisFlags memory_graph_plot_axis_flags = ImPlotAxisFlags_NoLabel | ImPlotAxisFlags_AutoFit | ImPlotAxisFlags_PanStretch;
+
+bool window_console_open = true;
+bool window_memory_stats_open = true;
+bool window_main_open = false;
+bool window_lobbies_open = false;
+bool window_instance_open = true;
+bool window_instance_browser_open = true;
+
+float window_background_alpha = 0.78;
+
+size_t g_instance_count = 0;
 
 enum RValueTypeColorEnum : uint32_t
 {
@@ -187,9 +202,11 @@ bool instance_selected;
 void draw_instances(const LinkedList<CInstancePadded>* inst_list)
 {
 	CInstance* instance = inst_list->m_First->instance;
+
 	for (uint32_t idx = 0; idx < inst_list->m_Count; idx++)
 	{
-		sprintf_s(instance_sel_name, 128, "%i (0x%08x)", instance->id, instance);
+		sprintf_s(instance_sel_name, 128, "#%i (0x%08x)", instance->id, static_cast<void*>(instance));
+
 		ImGui::Selectable(instance_sel_name, &instance_selected);
 
 		if (instance_selected)
@@ -201,7 +218,8 @@ void draw_instances(const LinkedList<CInstancePadded>* inst_list)
 			val.type = GML_TYPE_OBJECT;
 			if (g_instance_variable_names)
 			{
-				g_instance_variable_names->refcount = -1;
+				if (g_instance_variable_names->pArray)
+					loader_memory_free(g_instance_variable_names->pArray->arr);
 			}
 			g_instance_variable_names = loader_get_instance_variable_names(val);
 
@@ -212,73 +230,130 @@ void draw_instances(const LinkedList<CInstancePadded>* inst_list)
 	}
 }
 
-double last_memory_graph_update;
-std::vector<float> memory_usage_x;
-std::vector<float> memory_usage_y;
+std::vector<double> plot_duration;
+std::vector<double> plot_memory_usage;
+std::vector<double> plot_instance_count;
+double plot_last_update;
+double plot_memory_graph_higher_bound = 0;
+double plot_memory_graph_lower_bound = 0;
+double plot_update_interval = 0.5;
+double plot_depth = 10;
 
-uint32_t highest_mem_usage = 0;
-uint32_t lowest_mem_usage = 0;
 void render_memoryusage()
 {
-	MemoryManager* _memorymanager = loader_get_memory_manager();
+	MemoryManager* memory_manager = loader_get_memory_manager();
 
-	if (ImGui::GetTime() - last_memory_graph_update > 0.25)
+	const double current_memory_total_mb = (double)memory_manager->total / 1000000.0f;
+
+	if (ImGui::GetTime() - plot_last_update > plot_update_interval)
 	{
-		last_memory_graph_update = ImGui::GetTime();
+		plot_last_update = ImGui::GetTime();
 
-		memory_usage_y.emplace_back(_memorymanager->total);
+		plot_memory_usage.emplace_back(current_memory_total_mb);
 
-		if (_memorymanager->total > highest_mem_usage)
+		// set memory plot bounds
+		if (current_memory_total_mb > plot_memory_graph_higher_bound)
 		{
-			highest_mem_usage = _memorymanager->total;
+			plot_memory_graph_higher_bound = current_memory_total_mb + 10;
 		}
 
-		if (_memorymanager->total < lowest_mem_usage || lowest_mem_usage == 0)
+		if (current_memory_total_mb < plot_memory_graph_lower_bound || plot_memory_graph_lower_bound == 0)
 		{
-			lowest_mem_usage = _memorymanager->total;
+			plot_memory_graph_lower_bound = current_memory_total_mb - 10;
 		}
 
-		memory_usage_x.emplace_back(last_memory_graph_update);
+		plot_instance_count.emplace_back(g_instance_count);
+		plot_duration.emplace_back(plot_last_update);
 	}
 
-	if (ImGui::Begin("Memory Statistics"))
+	if (window_memory_stats_open == false)
+		return;
+
+	if (ImGui::Begin("Memory Statistics", &window_memory_stats_open))
 	{
-		ImGui::Text("Memory Used: %u bytes", _memorymanager->in_use);
-		ImGui::Text("Memory Total: %u bytes", _memorymanager->total);
-		ImGui::Text("Memory Maximum: %u bytes", _memorymanager->max_size);
+		ImGui::Text("YYC Memory Total: %.02f MB [?]", current_memory_total_mb);
+		TOOLTIP(
+			"YYC Memory Total is the total amount of memory created via Gamemaker variables, rooms, resources etc. NOT the process memory total\n"
+			"This is useful for tracking things like potential memory leaks within Workshop characters/stages/buddies etc"
+		);
 
-		const float _memory_usage_percentage = (float)_memorymanager->in_use / (float)_memorymanager->total;
-		ImGui::ProgressBar(_memory_usage_percentage);
-
-		if (ImPlot::BeginPlot("Memory Usage"))
+		if (ImGui::Button("Reset Memory Graph"))
 		{
-			const auto plot_color = ImVec4(1.0f, 0.5f, 0.0f, 1.0f);
-			ImPlotSpec line_spec;
-			line_spec.FillAlpha = 0.5;
-			line_spec.FillColor = ImVec4(1.0f, 0.5f, 0.0f, 0.5f);
-			line_spec.LineColor = ImVec4(1.0f, 0.5f, 0.0f, 1.0f);
-			line_spec.LineWeight = 2;
-			line_spec.Flags = ImPlotItemFlags_NoLegend;
+			plot_duration.clear();
+			plot_memory_usage.clear();
+			plot_instance_count.clear();
+			plot_memory_graph_lower_bound = 0;
+			plot_memory_graph_higher_bound = 0;
+		}
 
-			ImPlot::SetupAxes("Time", "Memory Total (bytes)");
-			ImPlot::SetupAxesLimits(0, last_memory_graph_update, lowest_mem_usage, highest_mem_usage, ImPlotCond_Always);
-			ImPlot::PlotShaded("Memory Total", memory_usage_x.data(), memory_usage_y.data(), memory_usage_x.size(), -INFINITY, line_spec);
+		const double plot_depth_slider_min = 1;
+		const double plot_depth_slider_max = 100;
+		ImGui::SliderScalar("Plot Depth (seconds)", ImGuiDataType_Double, &plot_depth, &plot_depth_slider_min, &plot_depth_slider_max);
+		ImGui::InputDouble("Plot Update Interval", &plot_update_interval);
+		plot_update_interval = std::clamp(plot_update_interval, 0.1, (double)INT_MAX);
+
+		if (ImPlot::BeginPlot("Memory Usage", ImVec2(-1, 0), memory_graph_plot_flags))
+		{
+			// MEMORY
+
+			ImPlotSpec memory_line_spec;
+			memory_line_spec.FillAlpha = 0.5;
+			memory_line_spec.FillColor = ImVec4(1.0f, 0.5f, 0.0f, 0.5f);
+			memory_line_spec.LineColor = ImVec4(1.0f, 0.5f, 0.0f, 1.0f);
+			memory_line_spec.LineWeight = 1;
+
+			std::string memory_total_text = std::vformat("Mem {:.2f} MB", std::make_format_args(current_memory_total_mb));
+
+			ImPlot::SetupAxis(ImAxis_X1, "##", memory_graph_plot_axis_flags);
+			ImPlot::SetupAxis(ImAxis_Y1, "##", memory_graph_plot_axis_flags | ImPlotAxisFlags_NoTickLabels);
+			ImPlot::SetupAxisLimits(ImAxis_X1, plot_last_update - plot_depth, plot_last_update, ImPlotCond_Always);
+			ImPlot::SetupAxisLimits(ImAxis_Y1, plot_memory_graph_lower_bound, plot_memory_graph_higher_bound, ImPlotCond_Always);
+
+			// INSTANCES
+
+			ImPlotSpec instances_line_spec;
+			instances_line_spec.LineColor = ImVec4(0.0f, 1.0, 0.5f, 1.0f);
+			instances_line_spec.LineWeight = 1;
+
+			std::string instance_count_text = std::vformat("Instance Count {}", std::make_format_args(g_instance_count));
+			ImPlot::SetupAxis(ImAxis_X2, "##", memory_graph_plot_axis_flags | ImPlotAxisFlags_NoTickLabels);
+			ImPlot::SetupAxis(ImAxis_Y2, "##", memory_graph_plot_axis_flags | ImPlotAxisFlags_NoTickLabels | ImPlotAxisFlags_RangeFit);
+			//ImPlot::SetupAxisLimits(ImAxis_Y2, 0, memory_graph_instances_higher_bound, ImPlotCond_Always);
+
+			// MEMORY
+			ImPlot::SetAxes(ImAxis_X1, ImAxis_Y1);
+			ImPlot::PlotShaded("##", plot_duration.data(), plot_memory_usage.data(), plot_duration.size(), -INFINITY, memory_line_spec);
+			ImPlot::PlotLine(memory_total_text.data(), plot_duration.data(), plot_memory_usage.data(), plot_duration.size(), memory_line_spec);
+
+			// INSTANCES
+			ImPlot::SetAxes(ImAxis_X1, ImAxis_Y2);
+			ImPlot::PlotLine(instance_count_text.data(), plot_duration.data(), plot_instance_count.data(), plot_instance_count.size(), instances_line_spec);
+
 			ImPlot::EndPlot();
 		}
 	}
 	ImGui::End();
 }
 
-bool object_treenode(const CObjectGM* object)
+void object_treenode(const CObjectGM* object)
 {
-	bool pressed = ImGui::TreeNodeEx(object->m_Name, treenode_flags);
+	const char* name = object->m_Name;
+	auto tree_label = [&name, &object]() -> bool
+		{
+			bool pressed = ImGui::TreeNodeEx(name, treenode_flags);
+			ImGui::SameLine();
+			ImGui::PushStyleColor(ImGuiCol_Text, 0xff7f7f7f);
+			ImGui::Text("(%i instances)", object->m_Instances.m_Count);
+			ImGui::PopStyleColor();
+			return pressed;
+		};
 
-	ImGui::SameLine();
-	ImGui::PushStyleColor(ImGuiCol_Text, 0xff7f7f7f);
-	ImGui::Text("(%i instances)", object->m_Instances.m_Count);
-	ImGui::PopStyleColor();
+	if (tree_label())
+	{
+		draw_instances(&object->m_Instances);
 
-	return pressed;
+		ImGui::TreePop();
+	}
 }
 
 void draw_callstack_tooltip(std::string& vm_callstack)
@@ -349,7 +424,10 @@ std::string get_game_type_string(CSteamID lobby_id)
 
 void render_lobby_list()
 {
-	if (ImGui::Begin("Running Lobbies"))
+	if (window_lobbies_open == false)
+		return;
+
+	if (ImGui::Begin("Running Lobbies", &window_lobbies_open))
 	{
 		if (ImGui::Button("Refresh lobby list"))
 		{
@@ -399,7 +477,7 @@ void render_lobby_list()
 	ImGui::End();
 }
 
-void table_entry(const char* name, ImGuiDataType type, void* data, bool readonly = false, const char* format = nullptr)
+void table_entry(const char* name, ImGuiDataType type, void* data, bool readonly, const char* format)
 {
 	constexpr char default_input_flags = ImGuiInputTextFlags_EnterReturnsTrue;
 
@@ -408,6 +486,7 @@ void table_entry(const char* name, ImGuiDataType type, void* data, bool readonly
 	ImGui::TableSetColumnIndex(0);
 	ImGui::Text(name);
 	ImGui::TableSetColumnIndex(1);
+
 	if (data)
 	{
 		switch (type)
@@ -425,20 +504,40 @@ void table_entry(const char* name, ImGuiDataType type, void* data, bool readonly
 		}
 	}
 	ImGui::PopID();
+
+	ImGuiTable* table = ImGui::GetCurrentContext()->CurrentTable;
+	ImRect rect = table->BgClipRect;
+
+	const auto old_cursor_pos = ImGui::GetCursorPos();
+	
+	ImGui::SetCursorPos(rect.GetTL());
+	ImGui::Dummy(rect.GetSize());
 }
 
-void table_entry_object(const char* name, YYObjectBase* object, bool readonly = false)
+void table_entry_object(const char* name, YYObjectBase* object, bool readonly)
 {
 	ImGui::PushID(name);
 	ImGui::TableNextRow();
 	ImGui::TableSetColumnIndex(0);
+
+	auto tree_label = [&name]() -> bool
+		{
+			bool pressed = ImGui::TreeNodeEx(name, treenode_flags);
+			ImGui::SameLine(0, 0);
+			ImGui::Text(": ");
+			ImGui::SameLine(0, 0);
+			ImGui::PushStyleColor(ImGuiCol_Text, RValueTypeColorEnum::TYPE_OBJECT);
+			ImGui::Text("object");
+			ImGui::PopStyleColor();
+			return pressed;
+		};
 	
-	if (ImGui::TreeNodeEx(name, treenode_flags))
+	if (tree_label())
 	{
 		if (object)
 		{
 			table_entry("m_Capacity", ImGuiDataType_U32, &object->m_Capacity, readonly);
-			table_entry("m_Class", ImGuiDataType_U32, &object->m_Capacity, readonly);
+			table_entry("m_Class", ImGuiDataType_String, &object->m_Class, true);
 			table_entry("m_CurrentSlot", ImGuiDataType_S32, &object->m_CurrentSlot, readonly);
 			table_entry("m_DefineOwnProperty", ImGuiDataType_U32, &object->m_DefineOwnProperty, readonly, "0x%08x");
 			table_entry("m_DeleteOwnProperty", ImGuiDataType_U32, &object->m_DeleteOwnProperty, readonly, "0x%08x");
@@ -447,9 +546,9 @@ void table_entry_object(const char* name, YYObjectBase* object, bool readonly = 
 			table_entry("m_GCGeneration", ImGuiDataType_S32, &object->m_GCGeneration, readonly);
 			table_entry("m_GetProperty", ImGuiDataType_U32, &object->m_GetProperty, readonly, "0x%08x");
 			table_entry("m_ObjectKind", ImGuiDataType_S32, &object->m_ObjectKind, readonly);
-			table_entry_object("m_pNextObject", object->m_pNextObject, readonly);
-			table_entry_object("m_pPrevObject", object->m_pNextObject, readonly);
-			table_entry_object("m_prototype", object->m_prototype, readonly);
+			table_entry_object("m_pNextObject", object->m_pNextObject, true);
+			table_entry_object("m_pPrevObject", object->m_pNextObject, true);
+			table_entry_object("m_prototype", object->m_prototype, true);
 			table_entry("m_RValueInitType", ImGuiDataType_S32, &object->m_RValueInitType, readonly);
 			table_entry("m_VariableCount", ImGuiDataType_U32, &object->m_VariableCount, readonly);
 			table_entry("m_Visited", ImGuiDataType_U32, &object->m_Visited, readonly);
@@ -459,10 +558,13 @@ void table_entry_object(const char* name, YYObjectBase* object, bool readonly = 
 		}
 		ImGui::TreePop();
 	}
+
+	ImGui::TableSetColumnIndex(1);
+	ImGui::InputScalar("##", ImGuiDataType_U32, &object, nullptr, nullptr, "0x%08x", ImGuiInputTextFlags_ReadOnly);
 	ImGui::PopID();
 }
 
-void table_entry_code(const char* name, CCode* code, bool readonly = false)
+void table_entry_code(const char* name, CCode* code, bool readonly)
 {
 	ImGui::PushID(name);
 	ImGui::TableNextRow();
@@ -485,11 +587,13 @@ void table_entry_code(const char* name, CCode* code, bool readonly = false)
 		if (code)
 		{
 			table_entry_code("m_Next", code->m_Next);
+			table_entry("_vptr$CCode", ImGuiDataType_S32, (void*)code->_vptr$CCode, true, "0x%08x");
+			TOOLTIP("Address to the script's compiled code");
 			table_entry("m_Kind", ImGuiDataType_S32, &code->m_Kind, readonly);
 			table_entry("m_Compiled", ImGuiDataType_S32, &code->m_Compiled, readonly);
 			table_entry("m_Str", ImGuiDataType_String, (void*)code->m_Str, true);
-			table_entry("m_VmInstance", ImGuiDataType_U32, &code->m_VmInstance, readonly, "0x%08x");
-			table_entry("m_VmDebugInfo", ImGuiDataType_U32, &code->m_VmDebugInfo, readonly, "0x%08x");
+			table_entry("m_VmInstance", ImGuiDataType_U32, &code->m_VmInstance, true, "0x%08x");
+			table_entry("m_VmDebugInfo", ImGuiDataType_U32, &code->m_VmDebugInfo, true, "0x%08x");
 			table_entry("m_Name", ImGuiDataType_String, (void*)code->m_Name, true);
 			table_entry("m_CodeIndex", ImGuiDataType_S32, &code->m_CodeIndex, readonly);
 			table_entry("m_Watch", ImGuiDataType_Bool, &code->m_Watch, readonly);
@@ -504,7 +608,29 @@ void table_entry_code(const char* name, CCode* code, bool readonly = false)
 	ImGui::PopID();
 }
 
-void table_entry_rvalue(const char* name, RValue* data, bool readonly = false)
+void table_entry_dynarray(const char* name, RefDynamicArrayOfRValue* data, bool readonly)
+{
+	ImGui::InputScalar("##", ImGuiDataType_U32, &data, nullptr, nullptr, "0x%08x", ImGuiInputTextFlags_ReadOnly);
+	ImGui::SetNextItemStorageID(reinterpret_cast<ImGuiID>(data));
+	ImGui::TableNextRow();
+	ImGui::TableSetColumnIndex(0);
+	if (ImGui::TreeNodeEx("Values", treenode_flags))
+	{
+		const auto* dynarray = data->pArray;
+
+		if (dynarray)
+		{
+			for (size_t i = 0; i < dynarray->length; i++)
+			{
+				const std::string array_offset_string = std::format("{}[{}]", name, i);
+				table_entry_rvalue(array_offset_string.c_str(), &dynarray->arr[i], readonly);
+			}
+		}
+		ImGui::TreePop();
+	}
+}
+
+void table_entry_rvalue(const char* name, RValue* data, bool readonly)
 {
 	RValueDisplaySpec spec;
 	if (g_rvalue_display_specs.contains(data->type))
@@ -524,33 +650,17 @@ void table_entry_rvalue(const char* name, RValue* data, bool readonly = false)
 	ImGui::PopStyleColor();
 
 	ImGui::TableSetColumnIndex(1);
-
-	RefDynamicArrayOfRValue* array = nullptr;
 	switch (data->type)
 	{
-	case GML_TYPE_STRING:
-		ImGui::Text(data->value_stringref->string);
+	case GML_TYPE_STRING: // string
+		if (data->value_stringref)
+		{
+			ImGui::Text(data->value_stringref->string);
+		}
 		break;
 
-	case GML_TYPE_ARRAY:
-		ImGui::InputScalar("##", spec.imgui_type, &data->value_s64, nullptr, nullptr, spec.format, readonly ? ImGuiInputTextFlags_ReadOnly : ImGuiInputTextFlags_None);
-		ImGui::SetNextItemStorageID(reinterpret_cast<ImGuiID>(data));
-		ImGui::TableNextRow();
-		ImGui::TableSetColumnIndex(0);
-		if (ImGui::TreeNodeEx("Values", treenode_flags))
-		{
-			array = (RefDynamicArrayOfRValue*)data->value_array;
-
-			if (array->pArray)
-			{
-				for (size_t i = 0; i < array->pArray->length; i++)
-				{
-					const std::string array_offset_string = std::format("{}[{}]", name, i);
-					table_entry_rvalue(array_offset_string.c_str(), &array->pArray->arr[i], readonly);
-				}
-			}
-			ImGui::TreePop();
-		}
+	case GML_TYPE_ARRAY: // RefDynamicArrayOfRValue
+		table_entry_dynarray(name, static_cast<RefDynamicArrayOfRValue*>(data->value_array), readonly);
 		break;
 
 	default:
@@ -564,17 +674,19 @@ void table_instance_values()
 {
 	if (ImGui::TreeNodeEx("Instance Variables", treenode_flags))
 	{
-		RValue _rv_instance;
-		_rv_instance.value_instance = g_current_instance;
-		_rv_instance.type = GML_TYPE_OBJECT;
+		RValue instance_rval;
+		instance_rval.value_object = static_cast<YYObjectBase*>(g_current_instance);
+		instance_rval.type = GML_TYPE_OBJECT;
 
-		if (g_instance_variable_names->pArray)
+		const auto* dyn_array = g_instance_variable_names->pArray;
+
+		if (dyn_array)
 		{
-			for (size_t i = 0; i < g_instance_variable_names->pArray->length; i++)
+			for (size_t i = 0; i < dyn_array->length; i++)
 			{
-				GMLStringRef* string_ref = g_instance_variable_names->pArray->arr[i].value_stringref;
+				const GMLStringRef* string_ref = dyn_array->arr[i].value_stringref;
 
-				RValue* variable = loader_get_instance_variable(_rv_instance, string_ref->string);
+				RValue* variable = loader_get_instance_variable(instance_rval, string_ref->string);
 
 				if (variable)
 				{
@@ -590,8 +702,15 @@ void render_instance_details()
 {
 	constexpr ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_HighlightHoveredColumn;
 
-	if (ImGui::Begin("Instance Details"))
+	// instance browser window sets g_current_instance to nullptr if the current instance is not found/deleted
+	// check if its being ran to make sure we arent dereferencing an invalid g_current_instance pointer
+	if (window_instance_open == false || window_instance_browser_open == false || g_current_instance == nullptr)
+		return;
+
+	if (ImGui::Begin("Instance Details", &window_instance_open))
 	{
+		ImGui::Text("Current Instance: %s (#%u)", g_current_instance->object->m_Name, g_current_instance->id);
+
 		if (ImGui::BeginTable("##", 2, flags))
 		{
 			ImGui::TableSetupScrollFreeze(0, 1);
@@ -636,6 +755,9 @@ void render_instance_details()
 			table_entry_code("precreate_code", g_current_instance->precreate_code);
 
 			table_entry_object("YYObjectBase", g_current_instance);
+
+			ImGui::TableNextRow();
+			ImGui::TableSetColumnIndex(0);
 		
 			if (g_instance_variable_names)
 			{
@@ -649,6 +771,50 @@ void render_instance_details()
 	ImGui::End();
 }
 
+void render_instance_browser()
+{
+	if (window_instance_browser_open == false)
+		return;
+
+	g_instance_count = 0;
+	bool found = false;
+
+	ObjectsHash* object_hash = *g_ObjectHash;
+
+	if (ImGui::Begin("Active Instances", &window_instance_browser_open))
+	{
+		object_hash->for_each([&found](const CObjectGM* this_object)
+			{
+				if (this_object->m_Instances.m_Count <= 0)
+				{
+					return;
+				}
+
+				g_instance_count += this_object->m_Instances.m_Count;
+
+				object_treenode(this_object);
+
+				CInstance* inst = this_object->m_Instances.m_First->instance;
+				for (uint32_t idx = 0; idx < this_object->m_Instances.m_Count; idx++)
+				{
+					if (inst == g_current_instance)
+					{
+						found = true;
+					}
+
+					inst = inst->next;
+				}
+			});
+	}
+	ImGui::End();
+
+	if (g_current_instance && found == false)
+	{
+		// current instance was deleted? whatever the case the instance pointer was not found in objects hash
+		g_current_instance = nullptr;
+	}
+}
+
 // some notes:
 // RNG:
 //	current rng value = state[g_RngIndex] both variables are set by function YYRandom()
@@ -660,61 +826,10 @@ void render_instance_details()
 //	g_ObjectHash is a Hashmap that contains pointers to all currently loaded objects in the current room
 void render_globals()
 {
-	ObjectsHash* object_hash = *g_ObjectHash;
-	if (ImGui::Begin("Active Instances"))
-	{
-		for (int i = 0; i < object_hash->m_count; i++)
-		{
-			const CObjectGM* this_object = object_hash->find_object(i);
+	if (window_main_open == false)
+		return;
 
-			if (!this_object) continue;
-
-			if (this_object->m_Instances.m_Count > 0)
-			{
-				if (object_treenode(this_object))
-				{
-					draw_instances(&this_object->m_Instances);
-
-					ImGui::TreePop();
-				}
-			}
-		}
-	}
-	ImGui::End();
-
-	if (g_current_instance)
-	{
-		bool found = false;
-		object_hash->for_each([&found](CObjectGM* object)
-			{
-				if (object->m_Instances.m_Count <= 0)
-				{
-					return;
-				}
-
-				CInstance* inst = object->m_Instances.m_First->instance;
-				for (uint32_t idx = 0; idx < object->m_Instances.m_Count; idx++)
-				{
-					if (inst == g_current_instance)
-					{
-						found = true;
-					}
-
-					inst = inst->next;
-				}
-			});
-
-		if (found)
-		{
-			render_instance_details();
-		}
-		else
-		{
-			g_current_instance = nullptr;
-		}
-	}
-
-	if (ImGui::Begin(window_name.c_str()))
+	if (ImGui::Begin(window_name.c_str(), &window_main_open))
 	{
 		const int _v_RngIndex = **g_RngIndex;
 		int* _p_state = *state;
@@ -811,7 +926,7 @@ bool scroll_to_bottom = false;
 bool auto_scroll = false;
 void render_dbg_console()
 {
-	if (ImGui::Begin("Debug Console"))
+	if (ImGui::Begin("Debug Console", &window_console_open))
 	{
 		ImGui::Checkbox("Auto Scroll", &auto_scroll);
 		if (ImGui::Button("Scroll to Bottom"))
@@ -864,12 +979,53 @@ void render_dbg_console()
 	ImGui::End();
 }
 
+void imgui_init()
+{
+	ImGui::CreateContext();
+	ImPlot::CreateContext();
+
+	HWND window = loader_get_window();
+	ImGui_ImplWin32_Init(window);
+
+	ImGuiStyle& style = ImGui::GetStyle();
+	style.AntiAliasedLines = false;
+ 	style.Colors[ImGuiCol_WindowBg] = ImVec4(0.058f, 0.058f, 0.058f, window_background_alpha);
+	style.Colors[ImGuiCol_TitleBg] = ImVec4(0.03f, 0.03f, 0.03f, window_background_alpha * 1.1);
+	style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.16f, 0.29f, 0.48f, window_background_alpha * 1.5);
+	ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+}
+
 void imgui_render()
 {
+	ImGui::BeginMainMenuBar();
+	if (ImGui::BeginMenu("Windows"))
+	{
+		ImGui::Checkbox("Console", &window_console_open);
+		ImGui::Checkbox("Memory Stats", &window_memory_stats_open);
+		ImGui::Checkbox("Random Stuff", &window_main_open);
+		ImGui::Checkbox("Steamworks Lobbies", &window_lobbies_open);
+		ImGui::Checkbox("Instance Browser", &window_instance_browser_open);
+
+		if (ImGui::SliderFloat("Window Background Alpha", &window_background_alpha, 0, 1))
+		{
+			ImGuiStyle& style = ImGui::GetStyle();
+			style.Colors[ImGuiCol_WindowBg] = ImVec4(0.058f, 0.058f, 0.058f, window_background_alpha);
+			style.Colors[ImGuiCol_TitleBg] = ImVec4(0.03f, 0.03f, 0.03f, window_background_alpha * 1.1);
+			style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.16f, 0.29f, 0.48f, window_background_alpha * 1.5);
+		}
+
+		ImGui::EndMenu();
+	}
+	ImGui::EndMainMenuBar();
+
+	ImGui::ShowDemoWindow();
+
 	ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
 
 	render_memoryusage();
 	render_globals();
+	render_instance_browser();
+	render_instance_details();
 	render_dbg_console();
 	render_lobby_list();
 }

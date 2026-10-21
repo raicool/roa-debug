@@ -83,7 +83,7 @@ void prepare_global_instance()
 
 	if (ptr_Variable_Global_GetVar)
 	{
-		g_pGlobal = *(YYObjectBase**)INCR_PTR(ptr_Variable_Global_GetVar, 2);
+		g_pGlobal = *(YYObjectBase**)INCREMENT_POINTER(ptr_Variable_Global_GetVar, 2);
 		loader_log_trace("g_pGlobal = 0x{:08x}", (uint32_t)g_pGlobal);
 
 	}

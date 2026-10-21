@@ -10,16 +10,6 @@
 
 bool g_uiflag = true;
 
-void imgui_init()
-{
-	ImGui::CreateContext();
-	ImPlot::CreateContext();
-	HWND window = loader_get_window();
-	ImGui_ImplWin32_Init(window);
-
-	ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-}
-
 void handle_wndproc(
 	const HWND hWnd,
 	UINT uMsg,

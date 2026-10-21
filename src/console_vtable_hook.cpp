@@ -91,7 +91,7 @@ void prepare_console_vtable_hook()
 
 	if (ptr_dbgstream)
 	{
-		dbg_csol = **(tagIConsole***)INCR_PTR(ptr_dbgstream, 24);
+		dbg_csol = **(tagIConsole***)INCREMENT_POINTER(ptr_dbgstream, 24);
 		if (g_consoleprint_detour_created == false)
 		{
 			create_console_print_hook((*dbg_csol->vtable)[2]);
@@ -103,7 +103,7 @@ void prepare_console_vtable_hook()
 
 	if (ptr_relstream)
 	{
-		rel_csol = **(tagIConsole***)INCR_PTR(ptr_relstream, 33);
+		rel_csol = **(tagIConsole***)INCREMENT_POINTER(ptr_relstream, 33);
 		if (g_consoleprint_detour_created == false)
 		{
 			create_console_print_hook((*rel_csol->vtable)[2]);

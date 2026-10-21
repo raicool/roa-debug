@@ -1,3 +1,3 @@
 #pragma once
 
-#define INCR_PTR(x, idx) ((char*)x + idx)
+#define INCREMENT_POINTER(x, idx) ((char*)x + idx)
