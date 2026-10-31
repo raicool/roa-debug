@@ -9,6 +9,20 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 file(READ version ROA_DEBUG_VERSION)
 add_compile_definitions("VERSION_STR=\"${ROA_DEBUG_VERSION}\"")
 
+
+find_package(Git REQUIRED)
+if(Git_FOUND)
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} --no-pager log -n 1 HEAD "--pretty=format:%h"
+    OUTPUT_VARIABLE output
+    RESULT_VARIABLE result
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+  if(result EQUAL 0)
+    add_compile_definitions("GIT_COMMIT_HASH=\"${output}\"")
+  endif()
+endif()
+
 file(GLOB_RECURSE CXX_SOURCE "src/*.cpp")
 file(GLOB IMGUI_SOURCE 
     "vendor/implot/implot.cpp"
