@@ -27,7 +27,6 @@ LOADER_MOD_ENTRY initialize(loader_info* info)
 	pattern_find_VMGetCallStack();
 
 	prepare_console_vtable_hook();
-	prepare_global_instance();
 
 	imgui_init();
 

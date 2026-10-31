@@ -11,6 +11,7 @@ SIGNATURE_PTR_RVALUE PTR_RValue = nullptr;
 SIGNATURE_CODE_FUNC_FIND Code_Function_Find = nullptr;
 SIGNATURE_SCRIPT_PERFORM Script_Perform = nullptr;
 int __vars_get_names__;
+int __global_getter__ = 0;
 
 CInstance* g_GlobalInstance = nullptr;
 YYObjectBase* g_pGlobal = nullptr;
@@ -66,43 +67,6 @@ void prepare_PTR_RValue()
 	{
 		PTR_RValue = (SIGNATURE_PTR_RVALUE)ptr_PTR_RValue;
 	}
-}
-
-void prepare_global_instance()
-{
-	std::vector<uint8_t> pattern =
-	{
-		0x8b, 0x0d, '?', '?', '?', '?',
-		0x83, 0xec, '?',
-		0x32, 0xc0, 0x83, 0x79, 0x30, 0x00,
-		0x0f, 0x86, '?', '?', '?', '?',
-		0x8b, 0x51, 0x04
-	};
-
-	uint32_t ptr_Variable_Global_GetVar = (uint32_t)loader_search_memory(pattern);
-
-	if (ptr_Variable_Global_GetVar)
-	{
-		g_pGlobal = *(YYObjectBase**)INCREMENT_POINTER(ptr_Variable_Global_GetVar, 2);
-		loader_log_trace("g_pGlobal = 0x{:08x}", (uint32_t)g_pGlobal);
-
-	}
-	else
-	{
-		loader_log_error("could not find g_pGlobal");
-	}
-
- 	prepare_Code_Function_Find();
-	prepare_Script_Perform();
-
-	Code_Function_Find("variable_instance_get_names", &__vars_get_names__);
-
-// 	prepare_PTR_RValue();
-// 
-// 	Code_Function_Find("@@GlobalScope@@", &__global_getter__);
-// 	Code_Function_Find("@@This@@", &__self_getter__);
-// 	
-// 	get_global_instance();
 }
 
 // CInstance* get_global_instance()
