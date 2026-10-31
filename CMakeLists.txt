@@ -17,12 +17,15 @@ file(GLOB IMGUI_SOURCE
     "vendor/imgui/imgui_widgets.cpp"
     "vendor/imgui/imgui_tables.cpp"
     "vendor/imgui/imgui_draw.cpp"
-    "vendor/imgui/imgui_demo.cpp"
     "vendor/imgui/backends/imgui_impl_win32.cpp"
     "vendor/imgui/backends/imgui_impl_dx11.cpp"
 )
 
-add_library(${PROJECT_NAME} SHARED ${CXX_SOURCE} ${IMGUI_SOURCE})
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(IMGUI_DEBUG_SOURCE "vendor/imgui/imgui_demo.cpp")
+endif()
+
+add_library(${PROJECT_NAME} SHARED ${CXX_SOURCE} ${IMGUI_SOURCE} ${IMGUI_DEBUG_SOURCE})
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "${PROJECT_NAME}")
 target_include_directories(${PROJECT_NAME} PRIVATE "src" "include")
 
