@@ -7,15 +7,6 @@
 #pragma pack(push, 1)
 // TODO: move these over to roa-mod-loader
 
-// GameMaker functions that start with F_ share this format
-typedef RValue& (*PFUNC_F_CALL)(
-	_Out_ RValue* out,
-	_In_ CInstance* self,
-	_In_ CInstance* other,
-	_In_ int argCount,
-	_In_ RValue* args
-	);
-
 template<typename T>
 struct Hash
 {
