@@ -26,12 +26,14 @@ extern InternalConsole g_relstream;
 constexpr ImGuiTreeNodeFlags treenode_flags = ImGuiTreeNodeFlags_LabelSpanAllColumns | ImGuiTreeNodeFlags_DrawLinesFull;
 constexpr ImPlotFlags memory_graph_plot_flags = ImPlotFlags_NoFrame | ImPlotFlags_NoTitle | ImPlotFlags_NoMenus | ImPlotFlags_NoBoxSelect;
 constexpr ImPlotAxisFlags memory_graph_plot_axis_flags = ImPlotAxisFlags_NoLabel | ImPlotAxisFlags_AutoFit | ImPlotAxisFlags_PanStretch;
+constexpr ImGuiTableFlags table_flags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_HighlightHoveredColumn;
 
 const std::string window_name = MOD_NAME;
 
 bool window_console_open = true;
 bool window_memory_stats_open = true;
 bool window_main_open = false;
+bool window_globals_open = true;
 bool window_lobbies_open = false;
 bool window_instance_open = true;
 bool window_instance_browser_open = true;
@@ -185,32 +187,38 @@ inline ImVec4 imvec4_mix(ImVec4 r, ImVec4 l, float factor = 0.5f)
 	);
 }
 
+void render_single_instance(CInstance* instance)
+{
+	std::string instance_name = std::format("#{} (0x{:08x})", instance->id, (uintptr_t)instance);
+
+	ImGui::PushStyleColor(ImGuiCol_Text, RValueTypeColorEnum::TYPE_UNDEFINED);
+	ImGui::Selectable(instance_name.data(), g_current_instance == instance);
+	ImGui::PopStyleColor();
+
+	if (ImGui::IsItemActivated())
+	{
+		g_current_instance = instance;
+
+		if (g_instance_variable_names)
+		{
+			// call MemoryManager::Free on old array before loading new variable names
+			if (g_instance_variable_names->pArray)
+				loader_memory_free(g_instance_variable_names->pArray->arr);
+		}
+
+		// create array of MemoryManager allocated variable name strings for new instance
+		g_instance_variable_names = loader_get_instance_variable_names(g_current_instance);
+	}
+}
+
+
 void render_instances(const LinkedList<CInstancePadded>* inst_list)
 {
 	CInstance* instance = inst_list->m_First->instance;
 
 	for (uint32_t idx = 0; idx < inst_list->m_Count; idx++)
 	{
-		std::string instance_name = std::format("#{} (0x{:08x})", instance->id, (uintptr_t)instance);
-
-		ImGui::PushStyleColor(ImGuiCol_Text, RValueTypeColorEnum::TYPE_UNDEFINED);
-		ImGui::Selectable(instance_name.data(), g_current_instance == instance);
-		ImGui::PopStyleColor();
-
-		if (ImGui::IsItemActivated())
-		{
-			g_current_instance = instance;
-
-			if (g_instance_variable_names)
-			{
-				// call MemoryManager::Free on old array before loading new variable names
-				if (g_instance_variable_names->pArray)
-					loader_memory_free(g_instance_variable_names->pArray->arr);
-			}
-
-			// create array of MemoryManager allocated variable name strings for new instance
-			g_instance_variable_names = loader_get_instance_variable_names(g_current_instance);
-		}
+		render_single_instance(instance);
 
 		instance = instance->next;
 	}
@@ -698,10 +706,6 @@ void table_instance_values()
 {
 	if (ImGui::TreeNodeEx("Instance Variables", treenode_flags))
 	{
-		RValue instance_rval;
-		instance_rval.value_object = static_cast<YYObjectBase*>(g_current_instance);
-		instance_rval.type = GML_TYPE_OBJECT;
-
 		const auto* dyn_array = g_instance_variable_names->pArray;
 
 		if (dyn_array)
@@ -710,9 +714,12 @@ void table_instance_values()
 			{
 				const GMLStringRef* string_ref = dyn_array->arr[i].value_stringref;
 
-				RValue* variable = loader_get_instance_variable(instance_rval, string_ref->string);
+				RValue* variable = loader_get_instance_variable(
+					static_cast<YYObjectBase*>(g_current_instance), 
+					string_ref->string
+				);
 
-				if (variable)
+				if (variable != nullptr)
 				{
 					table_entry_rvalue(string_ref->string, variable);
 				}
@@ -724,11 +731,8 @@ void table_instance_values()
 
 void render_instance_details()
 {
-	constexpr ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_HighlightHoveredColumn;
-
-	// instance browser window sets g_current_instance to nullptr if the current instance is not found/deleted
-	// check if its being ran to make sure we arent dereferencing an invalid g_current_instance pointer
-	if (window_instance_open == false || window_instance_browser_open == false || g_current_instance == nullptr)
+	// check_valid_current_instance() sets g_current_instance to nullptr if the current instance is not found/deleted
+	if (window_instance_open == false || g_current_instance == nullptr)
 		return;
 
 	if (ImGui::Begin("Instance Details", &window_instance_open))
@@ -738,7 +742,7 @@ void render_instance_details()
 		ImGuiStyle& style = ImGui::GetStyle();
 		const float footer_height_to_reserve = style.SeparatorSize + style.ItemSpacing.y + ImGui::GetFrameHeightWithSpacing();
 
-		if (ImGui::BeginTable("##", 2, flags, ImVec2(0, -footer_height_to_reserve)))
+		if (ImGui::BeginTable("##", 2, table_flags, ImVec2(0, -footer_height_to_reserve)))
 		{
 			ImGui::TableSetupScrollFreeze(0, 1);
 			ImGui::TableSetupColumn("Variable", ImGuiTableColumnFlags_None);
@@ -827,43 +831,72 @@ void render_instance_browser()
 	if (window_instance_browser_open == false)
 		return;
 
-	g_instance_count = 0;
-	bool found = false;
-
 	ObjectsHash* object_hash = *g_ObjectHash;
 
 	if (ImGui::Begin("Active Instances", &window_instance_browser_open))
 	{
-		object_hash->for_each([&found](const CObjectGM* this_object)
+		object_hash->for_each([](const CObjectGM* this_object)
 			{
 				if (this_object->m_Instances.m_Count <= 0)
 				{
 					return;
 				}
 
-				g_instance_count += this_object->m_Instances.m_Count;
-
 				render_cobjectgm_treenode(this_object);
-
-				CInstance* inst = this_object->m_Instances.m_First->instance;
-				for (uint32_t idx = 0; idx < this_object->m_Instances.m_Count; idx++)
-				{
-					if (inst == g_current_instance)
-					{
-						found = true;
-					}
-
-					inst = inst->next;
-				}
 			});
 	}
 	ImGui::End();
+}
 
-	if (g_current_instance && found == false)
+bool global_vars_array_done = false;
+RefDynamicArrayOfRValue* g_global_var_names = nullptr;
+void render_globals()
+{
+	if (ImGui::Begin("Globals", &window_globals_open))
 	{
-		// current instance was deleted? whatever the case the instance pointer was not found in objects hash
-		g_current_instance = nullptr;
+		if (global_vars_array_done == false)
+		{
+			g_global_var_names = loader_get_global_variable_names();
+			global_vars_array_done = true;
+		}
+
+		if (g_global_var_names != nullptr)
+		{
+			ImGuiStyle& style = ImGui::GetStyle();
+			const float footer_height_to_reserve = style.SeparatorSize + style.ItemSpacing.y + ImGui::GetFrameHeightWithSpacing();
+
+			if (ImGui::BeginTable("##", 2, table_flags, ImVec2(0, -footer_height_to_reserve)))
+			{
+				ImGui::TableSetupScrollFreeze(0, 1);
+				ImGui::TableSetupColumn("Variable", ImGuiTableColumnFlags_None);
+				ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_None);
+				ImGui::TableHeadersRow();
+
+				ImGui::TableNextRow();
+				ImGui::TableSetColumnIndex(0);
+
+				auto* dyn_array = g_global_var_names->pArray;
+
+				for (size_t i = 0; i < dyn_array->length; i++)
+				{
+					const GMLStringRef* string_ref = dyn_array->arr[i].value_stringref;
+
+					RValue* variable = loader_get_global_variable(string_ref->string);
+					table_entry_rvalue(string_ref->string, variable);
+				}
+				ImGui::EndTable();
+			}
+
+			ImGui::Separator();
+			if (ImGui::Button("x"))
+			{
+				memset(g_variable_filter_input_buffer, 0, 128);
+			}
+			ImGui::SameLine();
+			ImGui::InputText("Filter", g_variable_filter_input_buffer, 128);
+		}
 	}
+	ImGui::End();
 }
 
 int state_prev[16]{ 0 };
@@ -881,7 +914,7 @@ constexpr ImVec4 color_rngval_active = ImVec4(0.92, 0.57, 0.57, 1.0f);
 //	the first 2 bytes will sometimes be reset to 7fff instead of 0000, but it depends on where g_RngIndex ends up after the reset
 // 
 //	g_ObjectHash is a Hashmap that contains pointers to all currently loaded objects in the current room
-void render_globals()
+void render_random_stuff()
 {
 	if (window_main_open == false)
 		return;
@@ -1050,6 +1083,40 @@ void render_dbg_console()
 	ImGui::End();
 }
 
+void check_valid_current_instance()
+{
+	g_instance_count = 0;
+	bool found = false;
+	ObjectsHash* object_hash = *g_ObjectHash;
+
+	object_hash->for_each([&found](const CObjectGM* this_object)
+		{
+			if (this_object->m_Instances.m_Count <= 0)
+			{
+				return;
+			}
+
+			g_instance_count += this_object->m_Instances.m_Count;
+
+			CInstance* inst = this_object->m_Instances.m_First->instance;
+			for (uint32_t idx = 0; idx < this_object->m_Instances.m_Count; idx++)
+			{
+				if (inst == g_current_instance)
+				{
+					found = true;
+				}
+
+				inst = inst->next;
+			}
+		});
+
+	if (g_current_instance && found == false)
+	{
+		// current instance was deleted? whatever the case the instance pointer was not found in objects hash
+		g_current_instance = nullptr;
+	}
+};
+
 void imgui_init()
 {
 	ImGui::CreateContext();
@@ -1060,7 +1127,7 @@ void imgui_init()
 
 	ImGuiStyle& style = ImGui::GetStyle();
 	style.AntiAliasedLines = false;
- 	style.Colors[ImGuiCol_WindowBg] = ImVec4(0.058f, 0.058f, 0.058f, window_background_alpha);
+	style.Colors[ImGuiCol_WindowBg] = ImVec4(0.058f, 0.058f, 0.058f, window_background_alpha);
 	style.Colors[ImGuiCol_TitleBg] = ImVec4(0.03f, 0.03f, 0.03f, window_background_alpha * 1.1);
 	style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.16f, 0.29f, 0.48f, window_background_alpha * 1.5);
 	ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
@@ -1091,10 +1158,13 @@ void imgui_render()
 
 	ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
 
+	check_valid_current_instance();
+
 	render_memoryusage();
-	render_globals();
+	render_random_stuff();
 	render_instance_browser();
 	render_instance_details();
+	render_globals();
 	render_dbg_console();
 	render_lobby_list();
 }
