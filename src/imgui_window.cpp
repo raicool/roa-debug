@@ -76,7 +76,7 @@ const std::unordered_map<int, RValueDisplaySpec> g_rvalue_display_specs =
 		RValueDisplaySpec
 		{
 			.imgui_type = ImGuiDataType_Double,
-			.format = "%.3g",
+			.format = "%.2f",
 			.type_string = "real",
 			.type_color = RValueTypeColorEnum::TYPE_REAL
 		}
