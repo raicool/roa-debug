@@ -638,7 +638,7 @@ void table_entry_rvalue(const char* name, RValue* data, bool readonly)
 	if (strlen(g_variable_filter_input_buffer) > 0)
 	{
 		const char* result = strstr(name, g_variable_filter_input_buffer);
-		if (result == nullptr || result == name)
+		if (result == nullptr)
 		{
 			return;
 		}

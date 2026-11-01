@@ -20,6 +20,13 @@ void handle_wndproc(
 	LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 	ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam);
 
+	if (g_uiflag)
+	{
+		// show cursor when ui is enabled, some rooms hide cursor by default
+		HCURSOR cursor = LoadCursorA(0, IDC_ARROW);
+		SetCursor(cursor);
+	}
+
 	if (uMsg == WM_KEYDOWN)
 	{
 		if (wParam == VK_F3)
@@ -36,9 +43,6 @@ void handle_wndproc(
 
 	if (IS_MOUSE_EVENT(uMsg))
 	{
-		HCURSOR cursor = LoadCursorA(0, IDC_ARROW);
-		SetCursor(cursor);
-
 		// Clear wndproc message so rivals doesnt register mouse event
 		if (ImGui::GetIO().WantCaptureMouse)
 		{
