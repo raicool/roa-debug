@@ -2,7 +2,7 @@
     "configurations": [
         {
             "name": "x86-Debug",
-            "generator": "Visual Studio 17 2022",
+            "generator": "Ninja",
             "configurationType": "Debug",
             "buildRoot": "${projectDir}\\bin\\${name}",
             "installRoot": "${projectDir}\\out\\install\\${name}",
