@@ -665,9 +665,12 @@ void table_entry_rvalue(const char* name, RValue* data, bool readonly)
 	switch (data->type)
 	{
 	case GML_TYPE_STRING: // string
-		if (data->value_stringref)
+		if (data->value_stringref != nullptr)
 		{
-			ImGui::Text(data->value_stringref->string);
+			if (data->value_stringref->string != nullptr)
+			{
+				ImGui::Text(data->value_stringref->string);
+			}
 		}
 		break;
 
